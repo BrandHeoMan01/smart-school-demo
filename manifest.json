@@ -1,0 +1,19 @@
+{
+  "name": "EDUVIA — متابعة وليّ الأمر",
+  "short_name": "EDUVIA",
+  "description": "تابع حضور ونقاط ابنك لحظيًّا مع منظومة EDUVIA.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./parent-app.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#16366B",
+  "theme_color": "#16366B",
+  "categories": ["education"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

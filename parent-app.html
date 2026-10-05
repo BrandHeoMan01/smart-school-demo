@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EDUVIA · تطبيق وليّ الأمر</title>
+<meta name="theme-color" content="#16366B">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EDUVIA">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Crect width='72' height='72' rx='18' fill='%231E8FD0'/%3E%3Cpath d='M36 18L54 26L36 34L18 26Z' fill='white'/%3E%3C/svg%3E">
+<style>
+:root{
+  --navy:#16366B; --blue:#1E8FD0; --teal:#17A39B; --green:#34B45E; --orange:#F7941E;
+  --head:#16366B; --ink:#14203A; --muted:#6a7891; --border:#e7ebf3; --surface:#fff; --surface-2:#f5f8fc; --bg:#eef2f9;
+  --present:#2FA25A; --present-bg:#e6f6ee; --late:#E08512; --late-bg:#fcf1de; --absent:#D23B3B; --absent-bg:#fbe9e9;
+  --grad:linear-gradient(135deg,#16366B 0%,#1E8FD0 48%,#34B45E 100%);
+}
+html[data-theme="dark"]{
+  --head:#cfe0f5; --ink:#e9eefb; --muted:#9aa8c5; --border:#26324f; --surface:#141d33; --surface-2:#1a2440; --bg:#0d1424;
+  --present:#3ecb8b; --present-bg:#123021; --late:#f0a63c; --late-bg:#33260f; --absent:#f06767; --absent-bg:#331616;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Tahoma,"Noto Kufi Arabic",Arial,sans-serif;color:var(--ink);background:var(--bg)}
+.ltr{direction:ltr;unicode-bidi:isolate;display:inline-block}
+.intro{display:none}
+.intro .word{font-weight:800;letter-spacing:1px;font-size:40px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.intro h2{margin:6px 0 14px;font-size:20px;color:var(--navy)}
+.intro p{color:#48566f;font-size:14px;line-height:1.8}
+.intro .tip{background:#fff;border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-top:14px;font-size:13px;box-shadow:0 6px 20px rgba(20,32,58,.06)}
+
+/* Phone */
+.phone{width:100%;max-width:560px;margin:0 auto;height:100vh;height:100dvh;background:var(--surface);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.notch{display:none}
+.status{display:none}
+.appbar{background:var(--grad);color:#fff;padding:12px 16px 14px;flex-shrink:0}
+.appbar .top{display:flex;align-items:center;justify-content:space-between}
+.appbar .brand{display:flex;align-items:center;gap:9px}
+.appbar .brand b{font-size:17px;letter-spacing:.5px}
+.appbar .brand small{display:block;font-size:9px;opacity:.85}
+.kids{display:flex;gap:7px;margin-top:12px;overflow-x:auto}
+.kid{background:rgba(255,255,255,.16);border:0;color:#fff;padding:7px 13px;border-radius:20px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:7px}
+.kid.act{background:#fff;color:var(--navy)}
+.kid .av{width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.12);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}
+.kid.act .av{background:var(--grad);color:#fff}
+
+.wrap{flex:1;overflow-y:auto;background:var(--surface-2)}
+.screen{display:none;padding:16px}
+.screen.act{display:block;animation:fade .25s}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+
+.tabbar{display:flex;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.tabbar button{flex:1;border:0;background:none;padding:9px 3px 11px;font-size:10px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;font-family:inherit}
+.tabbar button.act{color:var(--blue);font-weight:700}
+.tabbar .ic{font-size:19px}
+
+/* cards */
+.childcard{background:var(--grad);color:#fff;border-radius:18px;padding:18px;display:flex;align-items:center;gap:14px;box-shadow:0 10px 26px rgba(30,143,208,.28)}
+.childcard .av{width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800}
+.childcard b{font-size:19px}
+.childcard span{font-size:12.5px;opacity:.9;display:block;margin-top:3px}
+.sec-t{font-size:13px;color:var(--muted);font-weight:700;margin:18px 2px 9px;display:flex;align-items:center;gap:6px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:15px;box-shadow:0 5px 16px rgba(20,32,58,.05)}
+.today{display:flex;gap:10px}
+.today .t{flex:1;border-radius:13px;padding:14px;text-align:center}
+.today .in{background:var(--present-bg)}.today .out{background:var(--surface-2)}
+.today .t .lab{font-size:11px;color:var(--muted)}
+.today .t .val{font-size:20px;font-weight:800;margin-top:5px}
+.today .in .val{color:var(--present)}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:13px}
+.tile .l{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:5px}
+.tile .v{font-size:23px;font-weight:800;margin-top:6px}
+.g{color:var(--present)}.b{color:var(--blue)}.o{color:var(--late)}.r{color:var(--absent)}
+.list-row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--border);font-size:13px}
+.list-row:last-child{border-bottom:0}
+.pill{padding:4px 10px;border-radius:14px;font-size:11px;font-weight:700}
+.pill.ok{background:var(--present-bg);color:var(--present)}.pill.late{background:var(--late-bg);color:var(--late)}.pill.abs{background:var(--absent-bg);color:var(--absent)}
+.subj{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--border)}
+.subj:last-child{border-bottom:0}
+.subj .mk{font-weight:800}
+.notif{display:flex;gap:11px;padding:12px;border:1px solid var(--border);border-radius:13px;margin-bottom:9px;background:var(--surface);font-size:13px}
+.notif .ic{font-size:18px}
+.notif small{color:var(--muted);font-size:11px}
+.btn{border:0;border-radius:12px;padding:13px;font-weight:700;font-size:14px;cursor:pointer;width:100%;font-family:inherit}
+.btn.p{background:var(--blue);color:#fff}.btn.o{background:var(--orange);color:#fff}.btn.g{background:var(--present);color:#fff}
+.btn.ghost{background:var(--surface);border:1px solid var(--border);color:var(--ink)}
+
+/* subscription */
+.plan{border:2px solid var(--border);border-radius:16px;padding:16px;margin-bottom:12px;position:relative}
+.plan.best{border-color:var(--orange);box-shadow:0 8px 22px rgba(247,148,30,.16)}
+.plan .badge{position:absolute;top:-11px;inset-inline-start:16px;background:var(--orange);color:#fff;font-size:10.5px;font-weight:700;padding:4px 11px;border-radius:12px}
+.plan .pr{font-size:26px;font-weight:800;color:var(--head)}
+.plan .pr span{font-size:12px;color:var(--muted);font-weight:600}
+.plan .save{color:var(--present);font-size:11.5px;font-weight:700;margin-top:2px}
+.plan ul{margin:11px 0 13px;padding-inline-start:18px;font-size:12.5px;color:var(--muted)}
+.plan li{margin:4px 0}
+.status-card{border-radius:16px;padding:16px;color:#fff;background:var(--grad)}
+.status-card.free{background:linear-gradient(135deg,#5a6b86,#8595ad)}
+.toggle{display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:4px;margin:8px 0 16px}
+.toggle button{flex:1;border:0;background:none;padding:9px;border-radius:9px;font-weight:700;font-size:12.5px;cursor:pointer;color:var(--muted);font-family:inherit}
+.toggle button.act{background:var(--blue);color:#fff}
+.lock{background:var(--surface);border:1px dashed var(--border);border-radius:15px;padding:26px 18px;text-align:center}
+.lock .em{font-size:34px}
+.lock b{display:block;margin:8px 0 4px;font-size:15px}
+.lock p{color:var(--muted);font-size:12.5px;margin:0 0 14px}
+.cmp{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.cmp th,.cmp td{border:1px solid var(--border);padding:8px;text-align:center}
+.cmp th{background:var(--surface-2)}
+.cmp .yes{color:var(--present);font-weight:800}.cmp .no{color:var(--absent)}
+.note{background:var(--late-bg);color:var(--late);border-radius:12px;padding:12px;font-size:12px;margin-top:12px}
+#installBtn{display:none;position:absolute;bottom:74px;left:50%;transform:translateX(-50%);z-index:16;align-items:center;gap:7px;background:var(--orange);color:#fff;border:0;border-radius:24px;padding:12px 20px;font-weight:700;font-size:13px;font-family:inherit;cursor:pointer;box-shadow:0 10px 24px rgba(247,148,30,.45)}
+#toast{position:absolute;bottom:78px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-size:13px;opacity:0;transition:.3s;z-index:20;white-space:nowrap;box-shadow:0 8px 20px rgba(0,0,0,.3)}
+#toast.show{opacity:1}
+.demotag{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--muted);z-index:8}
+.plogin{position:absolute;inset:0;z-index:30;background:var(--grad);display:flex;align-items:center;justify-content:center;padding:24px}
+.plogin .card{background:#fff;border-radius:22px;padding:26px 22px;width:100%;max-width:400px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.28)}
+.plogin h2{margin:10px 0 3px;font-size:20px;color:#16366B}
+.plogin .s{color:#6a7891;font-size:12.5px;margin-bottom:14px}
+.plogin label{display:block;text-align:right;font-size:12px;color:#6a7891;margin:12px 0 6px}
+.plogin input{width:100%;padding:12px;border:1px solid #e2e8f2;border-radius:11px;background:#f4f7fc;font-size:15px;font-family:inherit;text-align:center;color:#14203A}
+.plogin .go{width:100%;margin-top:18px;padding:13px;border:0;border-radius:12px;background:#1E8FD0;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:inherit}
+.plogin .err{color:#D23B3B;font-size:12px;margin-top:8px;min-height:15px}
+.plogin .hint{font-size:11px;color:#6a7891;margin-top:12px}
+.qrModal{position:absolute;inset:0;z-index:28;background:rgba(10,18,38,.6);display:flex;align-items:center;justify-content:center;padding:22px}
+.qrModal .card{background:var(--surface);border-radius:18px;padding:22px;text-align:center;width:100%;max-width:420px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.qrModal h3{margin:0 0 4px;color:var(--head);font-size:17px}
+.qrModal p{color:var(--muted);font-size:12px;margin:0 0 14px}
+.qrModal .u{font-size:11px;color:var(--muted);word-break:break-all;margin-top:12px;direction:ltr}
+.qrModal .x{margin-top:14px}
+@media(max-width:900px){.intro{display:none}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="eg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#16366B"/><stop offset=".5" stop-color="#1E8FD0"/><stop offset="1" stop-color="#34B45E"/></linearGradient>
+  <g id="emblemG">
+    <rect width="72" height="72" rx="18" fill="url(#eg)"/>
+    <path d="M14 50C22 46 31 46 36 50C41 46 50 46 58 50L58 60C50 56 41 56 36 60C31 56 22 56 14 60Z" fill="#fff" opacity=".92"/>
+    <path d="M36 18L54 26L36 34L18 26Z" fill="#fff"/>
+    <path d="M28 30L44 30L42 40C42 43 30 43 30 40Z" fill="#fff"/>
+    <path d="M54 26L56 38" stroke="#fff" stroke-width="1.6"/><circle cx="56" cy="40.5" r="2.6" fill="#F7941E"/>
+  </g>
+</defs></svg>
+
+<div class="intro">
+  <div class="word">EDUVIA</div>
+  <h2>تطبيق وليّ الأمر</h2>
+  <p>نموذج تفاعلي لتطبيق الهاتف الذي يتابع به الوليّ ابنه لحظيًّا: الدخول والخروج، النقاط والمعدلات، الحضور، والإشعارات — بواجهة أنظف وأغنى من التطبيقات الحالية.</p>
+  <div class="tip">📱 جرّب التبويبات في الأسفل، وبدّل بين الطفلين في الأعلى، وافتح تبويب «حسابي» لترى نظام الاشتراك ومقارنة المجاني بالمميّز.</div>
+</div>
+
+<div class="phone">
+  <div class="notch"></div>
+  <div class="status"><span class="ltr" id="clock">20:30</span><span>📶 🔋 <span class="ltr">85%</span></span></div>
+
+  <div class="appbar">
+    <div class="top">
+      <div class="brand"><svg viewBox="0 0 72 72" width="34" height="34"><use href="#emblemG"/></svg><div><b>EDUVIA</b><small>متابعة وليّ الأمر</small></div></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="toggleTheme()" id="themeBtn" aria-label="تبديل الوضع" style="background:rgba(255,255,255,.18);border:0;color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:15px">☀️</button>
+        <span style="font-size:19px">🔔</span>
+      </div>
+    </div>
+    <div class="kids" id="kids"></div>
+  </div>
+
+  <div class="wrap">
+    <!-- HOME -->
+    <section class="screen act" id="s-home"></section>
+    <!-- ATTENDANCE -->
+    <section class="screen" id="s-att"></section>
+    <!-- GRADES -->
+    <section class="screen" id="s-grades"></section>
+    <!-- NOTIFICATIONS -->
+    <section class="screen" id="s-notif"></section>
+    <!-- ACCOUNT -->
+    <section class="screen" id="s-acc"></section>
+  </div>
+
+  <div class="tabbar" id="tabbar">
+    <button class="act" data-s="home" onclick="tab('home')"><span class="ic">🏠</span>الرئيسية</button>
+    <button data-s="att" onclick="tab('att')"><span class="ic">🗓️</span>الحضور</button>
+    <button data-s="grades" onclick="tab('grades')"><span class="ic">📊</span>النقاط</button>
+    <button data-s="notif" onclick="tab('notif')"><span class="ic">🔔</span>الإشعارات</button>
+    <button data-s="acc" onclick="tab('acc')"><span class="ic">👤</span>حسابي</button>
+  </div>
+  <button id="installBtn" onclick="doInstall()">⬇️ تثبيت التطبيق على الهاتف</button>
+  <div id="toast"></div>
+  <div class="demotag">● نموذج تجريبي — بيانات افتراضية</div>
+
+  <div class="plogin" id="plogin"><div class="card">
+    <svg viewBox="0 0 72 72" width="60" height="60"><use href="#emblemG"/></svg>
+    <h2>تطبيق وليّ الأمر</h2>
+    <div class="s">تابع حضور ونتائج ابنك لحظيًّا</div>
+    <label>رقم الهاتف</label>
+    <input id="ph" inputmode="tel" value="0696185584" aria-label="رقم الهاتف" placeholder="0X XX XX XX XX">
+    <label>كود الطفل (تزوّدك به المؤسسة)</label>
+    <input id="ccode" value="1234" aria-label="كود الطفل" placeholder="كود الطفل">
+    <button class="go" onclick="plogin()">دخول</button>
+    <div class="err" id="plerr"></div>
+    <div class="hint">للتجربة: أي رقم + الكود <b>1234</b></div>
+  </div></div>
+
+  <div class="qrModal" id="qrModal" style="display:none"><div class="card">
+    <h3>📲 مشاركة التطبيق عبر QR</h3>
+    <p>وجّه كاميرا هاتف الوليّ الآخر إلى الرمز ليفتح التطبيق مباشرةً — دون نسخ أي رابط.</p>
+    <div id="qrHolder"></div>
+    <div class="u" id="qrUrl"></div>
+    <button class="btn ghost x" onclick="closeQR()">إغلاق</button>
+  </div></div>
+</div>
+
+<script>
+const parent="محمد الشيهاني";
+const SUBJ=[["اللغة العربية",8.5],["الرياضيات",7.5],["التربية الإسلامية",9],["التربية العلمية",8],["اللغة الفرنسية",7],["التربية المدنية",8.5],["التربية البدنية",9.5]];
+const SUBJ2=[["اللغة العربية",9],["الرياضيات",9.5],["التربية الإسلامية",9],["التربية العلمية",8.5],["اللغة الفرنسية",8],["التربية المدنية",9],["التربية البدنية",9]];
+const children=[
+  {name:"أنس الشيهاني",cls:"السنة الرابعة ابتدائي",school:"مدرسة النور",avg:8.20,rank:3,total:32,att:96,inT:"07:52",outT:"—",subj:SUBJ,
+   days:[["اليوم","ok","07:52"],["أمس","ok","07:49"],["الإثنين","late","08:19"],["الأحد","ok","07:55"],["الخميس","abs","—"],["الأربعاء","ok","07:47"]]},
+  {name:"مريم الشيهاني",cls:"السنة الثانية ابتدائي",school:"مدرسة النور",avg:8.80,rank:1,total:30,att:99,inT:"07:48",outT:"—",subj:SUBJ2,
+   days:[["اليوم","ok","07:48"],["أمس","ok","07:50"],["الإثنين","ok","07:52"],["الأحد","ok","07:46"],["الخميس","ok","07:51"],["الأربعاء","ok","07:49"]]}
+];
+let cur=0, premium=true, plan="الاشتراك الثلاثي";
+const av=n=>n.split(" ")[0][0];
+const mk=v=>v>=7?"g":v>=5?"o":"r";
+
+function kidsBar(){
+  document.getElementById("kids").innerHTML=children.map((c,i)=>
+    `<button class="kid ${i===cur?'act':''}" onclick="setKid(${i})"><span class="av">${av(c.name)}</span>${c.name.split(" ")[0]}</button>`).join("");
+}
+function setKid(i){cur=i;kidsBar();renderAll();}
+
+function lockBox(feat){return `<div class="lock"><div class="em">🔒</div><b>${feat} ضمن الاشتراك المميّز</b><p>فعّل الاشتراك لعرض هذه الميزة كاملةً لابنك.</p><button class="btn o" onclick="tab('acc')">⭐ الاشتراك الآن</button></div>`;}
+
+function renderHome(){
+  const c=children[cur];
+  document.getElementById("s-home").innerHTML=`
+    <div class="childcard"><div class="av">${av(c.name)}</div><div><b>${c.name}</b><span>${c.cls} · ${c.school}</span></div></div>
+    <div class="sec-t">📍 حالة اليوم</div>
+    <div class="today">
+      <div class="t in"><div class="lab">🟢 الدخول</div><div class="val ltr">${c.inT}</div></div>
+      <div class="t out"><div class="lab">🚪 الخروج</div><div class="val">${c.outT==="—"?"لم يخرج بعد":`<span class="ltr">${c.outT}</span>`}</div></div>
+    </div>
+    <div class="sec-t">📊 نظرة سريعة</div>
+    <div class="tiles">
+      <div class="tile"><div class="l">🎯 المعدل العام</div><div class="v b">${c.avg} <span style="font-size:12px;color:var(--muted)">/10</span></div></div>
+      <div class="tile"><div class="l">🏅 الترتيب</div><div class="v">${c.rank}<span style="font-size:13px;color:var(--muted)"> / ${c.total}</span></div></div>
+      <div class="tile"><div class="l">✅ الحضور</div><div class="v g">${c.att}%</div></div>
+      <div class="tile"><div class="l">🔔 إشعارات جديدة</div><div class="v o">2</div></div>
+    </div>
+    <div class="sec-t">📢 آخر إعلان</div>
+    <div class="card"><b style="font-size:14px">اجتماع أولياء التلاميذ</b><p style="margin:6px 0 0;font-size:12.5px;color:var(--muted)">يوم السبت 20 سبتمبر على الساعة 10:00 بقاعة الاجتماعات.</p></div>`;
+}
+function renderAtt(){
+  const c=children[cur];
+  if(!premium){document.getElementById("s-att").innerHTML=`<div class="sec-t">🗓️ سجل الحضور</div>`+lockBox("سجلّ الحضور الكامل");return;}
+  const P={ok:["ok","حاضر"],late:["late","متأخّر"],abs:["abs","غائب"]};
+  document.getElementById("s-att").innerHTML=`
+    <div class="sec-t">🗓️ ملخّص الشهر</div>
+    <div class="tiles">
+      <div class="tile"><div class="l">نسبة الحضور</div><div class="v g">${c.att}%</div></div>
+      <div class="tile"><div class="l">أيام الغياب</div><div class="v r">1</div></div>
+      <div class="tile"><div class="l">مرات التأخّر</div><div class="v o">1</div></div>
+      <div class="tile"><div class="l">أيام الحضور</div><div class="v b">21</div></div>
+    </div>
+    <div class="sec-t">📅 آخر الأيام</div>
+    <div class="card">${c.days.map(d=>`<div class="list-row"><span>${d[0]} · <span class="ltr">${d[2]}</span></span><span class="pill ${P[d[1]][0]}">${P[d[1]][1]}</span></div>`).join("")}</div>`;
+}
+function renderGrades(){
+  const c=children[cur];
+  if(!premium){document.getElementById("s-grades").innerHTML=`<div class="sec-t">📊 النقاط والمعدلات</div>`+lockBox("النقاط والمعدلات وكشف النقاط");return;}
+  document.getElementById("s-grades").innerHTML=`
+    <div class="sec-t">📊 نتائج الفصل الأول</div>
+    <div class="childcard" style="background:var(--surface);color:var(--ink);border:1px solid var(--border);box-shadow:none">
+      <div class="av" style="background:var(--grad);color:#fff">${c.avg}</div>
+      <div><b style="color:var(--head)">المعدّل العام: ${c.avg}/10</b><span style="color:var(--muted)">الترتيب ${c.rank} من ${c.total} · تقدير: ${c.avg>=8?"تهنئة 🎖️":"تشجيع 👏"}</span></div>
+    </div>
+    <div class="sec-t">📚 النقاط حسب المادة</div>
+    <div class="card">${c.subj.map(s=>`<div class="subj"><span>${s[0]}</span><span class="mk ${mk(s[1])==='g'?'g':mk(s[1])==='o'?'o':'r'}">${s[1]} <span style="color:var(--muted);font-size:11px">/10</span></span></div>`).join("")}</div>
+    <div style="margin-top:14px"><button class="btn ghost" onclick="toast('تم فتح كشف النقاط (محاكاة) 📄')">📄 عرض كشف النقاط الكامل</button></div>`;
+}
+function renderNotif(){
+  const all=[
+    ["🟢","دخل ابنك المدرسة","اليوم 07:52",true],
+    ["📢","إعلان: اجتماع أولياء التلاميذ يوم السبت","اليوم 08:10",false],
+    ["⏰","تأخّر صباح الإثنين (08:19)","الإثنين 08:19",true],
+    ["📝","نُشرت نقاط مادة الرياضيات","الأحد 14:00",false],
+    ["🚫","غياب يوم الخميس","الخميس 09:00",true]
+  ];
+  const list=premium?all:all.filter(n=>n[3]); // المجاني = رسائل SMS الأساسية فقط
+  document.getElementById("s-notif").innerHTML=`
+    <div class="sec-t">🔔 الإشعارات ${premium?"":"(الأساسية عبر SMS)"}</div>
+    ${list.map(n=>`<div class="notif"><span class="ic">${n[0]}</span><div><div>${n[1]}</div><small>${n[2]}</small></div></div>`).join("")}
+    ${premium?"":`<div class="note">📩 في الوضع المجاني تصلك الرسائل الأساسية فقط عبر SMS. فعّل الاشتراك للإشعارات الفورية غير المحدودة وكل التفاصيل.</div>`}`;
+}
+function renderAcc(){
+  const statusHtml=premium
+    ? `<div class="status-card"><div style="font-size:12px;opacity:.9">خطتك الحالية</div><div style="font-size:21px;font-weight:800;margin-top:3px">⭐ مميّز — ${plan}</div><div style="font-size:12px;opacity:.9;margin-top:6px">سارٍ حتى 14 ديسمبر 2026</div></div>`
+    : `<div class="status-card free"><div style="font-size:12px;opacity:.9">خطتك الحالية</div><div style="font-size:21px;font-weight:800;margin-top:3px">مجاني — رسائل SMS فقط</div><div style="font-size:12px;opacity:.9;margin-top:6px">فعّل الاشتراك لتجربة كاملة</div></div>`;
+  document.getElementById("s-acc").innerHTML=`
+    <div class="childcard" style="background:var(--surface);color:var(--ink);border:1px solid var(--border);box-shadow:none">
+      <div class="av" style="background:var(--grad);color:#fff">${av(parent)}</div><div><b style="color:var(--head)">${parent}</b><span style="color:var(--muted)">وليّ أمر · طفلان</span></div></div>
+    <div class="sec-t">💳 حالة الاشتراك</div>
+    ${statusHtml}
+    <div class="sec-t">👁️ معاينة الوضعين (للعرض)</div>
+    <div class="toggle"><button class="${premium?'act':''}" onclick="setPrem(true)">⭐ مميّز</button><button class="${!premium?'act':''}" onclick="setPrem(false)">مجاني (SMS)</button></div>
+    <div class="sec-t">🚀 اختر خطتك</div>
+    <div class="plan"><div class="pr">300 <span>دج / شهر</span></div><ul><li>كل مزايا التطبيق</li><li>إشعارات فورية غير محدودة</li></ul><button class="btn p" onclick="subscribe('الاشتراك الشهري')">اشترك شهريًّا</button></div>
+    <div class="plan best"><div class="badge">الأكثر اختيارًا</div><div class="pr">750 <span>دج / 3 أشهر</span></div><div class="save">توفير 150 دج</div><ul><li>كل مزايا الخطة الشهرية</li><li>سعر أفضل للفصل الدراسي</li></ul><button class="btn o" onclick="subscribe('الاشتراك الثلاثي')">اشترك للفصل</button></div>
+    <div class="plan"><div class="pr">2500 <span>دج / سنة</span></div><div class="save">توفير 1100 دج</div><ul><li>كل المزايا طوال العام</li><li>الأوفر للموسم كاملًا</li></ul><button class="btn ghost" onclick="subscribe('الاشتراك السنوي')">اشترك سنويًّا</button></div>
+    <div class="sec-t">📊 مجاني مقابل مميّز</div>
+    <table class="cmp"><tr><th>الميزة</th><th>مجاني</th><th>مميّز</th></tr>
+      <tr><td>إشعار الدخول/الخروج (SMS)</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+      <tr><td>تنبيه الغياب</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+      <tr><td>النقاط والمعدلات</td><td class="no">✕</td><td class="yes">✓</td></tr>
+      <tr><td>سجل الحضور الكامل</td><td class="no">✕</td><td class="yes">✓</td></tr>
+      <tr><td>كشف النقاط والتوقيت</td><td class="no">✕</td><td class="yes">✓</td></tr>
+      <tr><td>إشعارات فورية غير محدودة</td><td class="no">✕</td><td class="yes">✓</td></tr>
+    </table>
+    <div class="note">💡 الأسعار أمثلة قابلة للتعديل. حتى غير المشتركين يصلهم الحدّ الأدنى (دخول/خروج/غياب) عبر SMS مجانًا — والتطبيق يفتح التجربة الكاملة.</div>
+    <div class="sec-t">📲 مشاركة التطبيق</div>
+    <button class="btn p" onclick="openQR()">عرض رمز QR لمشاركة التطبيق</button>
+    <div style="margin-top:12px"><button class="btn ghost" onclick="plogout()">🚪 تسجيل الخروج</button></div>`;
+}
+function renderAll(){renderHome();renderAtt();renderGrades();renderNotif();renderAcc();}
+function tab(s){
+  document.querySelectorAll(".screen").forEach(x=>x.classList.remove("act"));
+  document.getElementById("s-"+s).classList.add("act");
+  document.querySelectorAll("#tabbar button").forEach(b=>b.classList.toggle("act",b.dataset.s===s));
+  document.querySelector(".wrap").scrollTo(0,0);
+}
+function setPrem(v){premium=v;renderAll();toast(v?"معاينة: الوضع المميّز ⭐":"معاينة: الوضع المجاني (SMS)");}
+function subscribe(p){premium=true;plan=p;renderAll();toast("تم تفعيل "+p+" ✓ (محاكاة)");}
+let tt;
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),2200);}
+function clock(){const d=new Date();document.getElementById("clock").textContent=String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
+function toggleTheme(){const h=document.documentElement;const d=h.getAttribute("data-theme")==="dark";h.setAttribute("data-theme",d?"light":"dark");const b=document.getElementById("themeBtn");if(b)b.textContent=d?"🌙":"☀️";}
+
+/* تسجيل دخول الوليّ */
+function plogin(){
+  const ph=document.getElementById("ph").value.replace(/\s/g,"");
+  const code=document.getElementById("ccode").value.trim();
+  const err=document.getElementById("plerr");
+  if(ph.length<9){err.textContent="أدخل رقم هاتف صحيح.";return;}
+  if(!code){err.textContent="أدخل كود الطفل.";return;}
+  err.textContent="";
+  document.getElementById("plogin").style.display="none";
+}
+function plogout(){document.getElementById("plerr").textContent="";document.getElementById("plogin").style.display="flex";}
+/* مشاركة عبر QR — توليد محلّي بالكامل (دون إنترنت) */
+function shareUrl(){const u=location.href.split("#")[0];return u.startsWith("http")?u:"https://eduvia-parent.example.app/";}
+function qrEncode(text){
+  const EXP=new Array(512),LOG=new Array(256);
+  for(let i=0,x=1;i<255;i++){EXP[i]=x;LOG[x]=i;x<<=1;if(x&0x100)x^=0x11d;}
+  for(let i=255;i<512;i++)EXP[i]=EXP[i-255];
+  const mul=(a,b)=>(a===0||b===0)?0:EXP[LOG[a]+LOG[b]];
+  const bytes=Array.from(new TextEncoder().encode(text));
+  const CAP=[null,19,34,55,80,108],ECC=[null,7,10,15,20,26];
+  let version=0;for(let v=1;v<=5;v++){if(bytes.length<=CAP[v]-2){version=v;break;}}
+  if(!version)throw new Error("too long");
+  const dataCW=CAP[version],ecCW=ECC[version],size=17+version*4;
+  let bits=[];const push=(val,len)=>{for(let i=len-1;i>=0;i--)bits.push((val>>i)&1);};
+  push(0b0100,4);push(bytes.length,8);for(const b of bytes)push(b,8);
+  const cap=dataCW*8;for(let i=0;i<4&&bits.length<cap;i++)bits.push(0);
+  while(bits.length%8)bits.push(0);
+  const pads=[0xEC,0x11];let pi=0;while(bits.length<cap){push(pads[pi%2],8);pi++;}
+  const data=[];for(let i=0;i<bits.length;i+=8){let b=0;for(let j=0;j<8;j++)b=(b<<1)|bits[i+j];data.push(b);}
+  let gen=[1];for(let i=0;i<ecCW;i++){const ng=new Array(gen.length+1).fill(0);for(let j=0;j<gen.length;j++){ng[j]^=gen[j];ng[j+1]^=mul(gen[j],EXP[i]);}gen=ng;}
+  const msg=data.concat(new Array(ecCW).fill(0));
+  for(let i=0;i<data.length;i++){const co=msg[i];if(co!==0)for(let j=0;j<gen.length;j++)msg[i+j]^=mul(gen[j],co);}
+  const all=data.concat(msg.slice(data.length));
+  const m=Array.from({length:size},()=>new Array(size).fill(0));
+  const fn=Array.from({length:size},()=>new Array(size).fill(false));
+  const setF=(r,c,v)=>{if(r<0||c<0||r>=size||c>=size)return;m[r][c]=v?1:0;fn[r][c]=true;};
+  function finder(r,c){for(let i=-1;i<=7;i++)for(let j=-1;j<=7;j++){const inb=(i>=0&&i<=6&&(j===0||j===6))||(j>=0&&j<=6&&(i===0||i===6))||(i>=2&&i<=4&&j>=2&&j<=4);setF(r+i,c+j,inb);}}
+  finder(0,0);finder(0,size-7);finder(size-7,0);
+  for(let i=8;i<size-8;i++){setF(6,i,i%2===0);setF(i,6,i%2===0);}
+  const ALIGN=[[],[],[6,18],[6,22],[6,26],[6,30]][version],last=size-7;
+  if(ALIGN.length)for(const r of ALIGN)for(const c of ALIGN){if((r===6&&c===6)||(r===6&&c===last)||(r===last&&c===6))continue;for(let i=-2;i<=2;i++)for(let j=-2;j<=2;j++)setF(r+i,c+j,Math.max(Math.abs(i),Math.abs(j))!==1);}
+  for(let i=0;i<=5;i++)fn[8][i]=true;fn[8][7]=fn[8][8]=fn[7][8]=true;for(let i=9;i<15;i++)fn[14-i][8]=true;
+  for(let i=0;i<7;i++)fn[size-1-i][8]=true;for(let i=0;i<8;i++)fn[8][size-8+i]=true;fn[size-8][8]=true;
+  const bitsAll=[];for(const cw of all)for(let i=7;i>=0;i--)bitsAll.push((cw>>i)&1);
+  let idx=0,up=true;
+  for(let col=size-1;col>0;col-=2){if(col===6)col--;for(let t=0;t<size;t++){const row=up?size-1-t:t;for(let cc=0;cc<2;cc++){const c=col-cc;if(fn[row][c])continue;m[row][c]=idx<bitsAll.length?bitsAll[idx]:0;idx++;}}up=!up;}
+  const maskFn=(k,r,c)=>[(r+c)%2===0,r%2===0,c%3===0,(r+c)%3===0,(((r>>1)+Math.floor(c/3))%2===0),((r*c)%2+(r*c)%3===0),(((r*c)%2+(r*c)%3)%2===0),(((r+c)%2+(r*c)%3)%2===0)][k];
+  function build(k){
+    const mm=m.map(r=>r.slice());
+    for(let r=0;r<size;r++)for(let c=0;c<size;c++)if(!fn[r][c]&&maskFn(k,r,c))mm[r][c]^=1;
+    const d5=(1<<3)|k;let v=d5<<10;for(let i=14;i>=10;i--)if((v>>i)&1)v^=0x537<<(i-10);
+    const fmt=((d5<<10)|(v&0x3ff))^0x5412,gb=i=>(fmt>>i)&1;
+    for(let i=0;i<=5;i++)mm[8][i]=gb(i);mm[8][7]=gb(6);mm[8][8]=gb(7);mm[7][8]=gb(8);
+    for(let i=9;i<15;i++)mm[14-i][8]=gb(i);
+    for(let i=0;i<7;i++)mm[size-1-i][8]=gb(i);for(let i=7;i<15;i++)mm[8][size-8+(i-7)]=gb(i);
+    mm[size-8][8]=1;return mm;
+  }
+  function penalty(mm){let p=0;
+    for(let r=0;r<size;r++){let run=1;for(let c=1;c<size;c++){if(mm[r][c]===mm[r][c-1])run++;else{if(run>=5)p+=run-2;run=1;}}if(run>=5)p+=run-2;}
+    for(let c=0;c<size;c++){let run=1;for(let r=1;r<size;r++){if(mm[r][c]===mm[r-1][c])run++;else{if(run>=5)p+=run-2;run=1;}}if(run>=5)p+=run-2;}
+    for(let r=0;r<size-1;r++)for(let c=0;c<size-1;c++){const v=mm[r][c];if(v===mm[r][c+1]&&v===mm[r+1][c]&&v===mm[r+1][c+1])p+=3;}
+    const p1=[1,0,1,1,1,0,1,0,0,0,0],p2=[0,0,0,0,1,0,1,1,1,0,1];
+    const ck=line=>{let s=0;for(let i=0;i+11<=line.length;i++){let a=1,b=1;for(let j=0;j<11;j++){if(line[i+j]!==p1[j])a=0;if(line[i+j]!==p2[j])b=0;}if(a||b)s+=40;}return s;};
+    for(let r=0;r<size;r++)p+=ck(mm[r]);
+    for(let c=0;c<size;c++){const col=[];for(let r=0;r<size;r++)col.push(mm[r][c]);p+=ck(col);}
+    let dark=0;for(let r=0;r<size;r++)for(let c=0;c<size;c++)dark+=mm[r][c];
+    p+=Math.floor(Math.abs(dark*100/(size*size)-50)/5)*10;return p;
+  }
+  let best=null,bp=Infinity;for(let k=0;k<8;k++){const mm=build(k);const pe=penalty(mm);if(pe<bp){bp=pe;best=mm;}}
+  return {m:best,size};
+}
+function qrSVG(text,px){
+  const q=qrEncode(text),size=q.size,quiet=4,total=size+quiet*2;
+  let rects="";
+  for(let r=0;r<size;r++)for(let c=0;c<size;c++)if(q.m[r][c])rects+=`<rect x="${c+quiet}" y="${r+quiet}" width="1" height="1"/>`;
+  return `<svg viewBox="0 0 ${total} ${total}" width="${px}" height="${px}" shape-rendering="crispEdges" style="background:#fff;border-radius:12px"><rect width="${total}" height="${total}" fill="#fff"/><g fill="#000">${rects}</g></svg>`;
+}
+function openQR(){
+  const url=shareUrl();
+  document.getElementById("qrUrl").textContent=url;
+  const holder=document.getElementById("qrHolder");
+  try{holder.innerHTML=qrSVG(url,250);}
+  catch(e){holder.innerHTML='<div class="note">الرابط طويل جدًا لتوليد الرمز محليًا.</div>';}
+  document.getElementById("qrModal").style.display="flex";
+}
+function closeQR(){document.getElementById("qrModal").style.display="none";}
+
+kidsBar();renderAll();clock();setInterval(clock,10000);
+
+/* ================= PWA: تثبيت + عمل دون إنترنت ================= */
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+}
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPrompt=e;const b=document.getElementById("installBtn");if(b)b.style.display="flex";});
+async function doInstall(){
+  if(!deferredPrompt){toast("للتثبيت: قائمة المتصفّح ← «تثبيت التطبيق» / «إضافة إلى الشاشة الرئيسية»");return;}
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt=null;
+  const b=document.getElementById("installBtn");if(b)b.style.display="none";
+}
+window.addEventListener("appinstalled",()=>{const b=document.getElementById("installBtn");if(b)b.style.display="none";toast("تم تثبيت EDUVIA على جهازك ✓");});
+</script>
+</body>
+</html>

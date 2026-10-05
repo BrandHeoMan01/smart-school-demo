@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EDUVIA · الهوية البصرية</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Crect width='72' height='72' rx='18' fill='%231E8FD0'/%3E%3Cpath d='M36 18L54 26L36 34L18 26Z' fill='white'/%3E%3C/svg%3E">
+<style>
+:root{
+  --navy:#16366B; --blue:#1E8FD0; --teal:#17A39B; --green:#34B45E; --lime:#8BC34A; --orange:#F7941E;
+  --violet:#7C4DD1; --pink:#E5397F;
+  --ink:#14203A; --muted:#667694; --border:#e6eaf2; --surface:#fff; --bg:#eef2f9; --surface-2:#f7f9fc;
+  --present:#2FA25A; --late:#E08512; --absent:#D23B3B; --info:#1E8FD0;
+  --grad:linear-gradient(135deg,#16366B 0%,#1E8FD0 45%,#17A39B 72%,#34B45E 100%);
+  --grad-soft:linear-gradient(135deg,#eaf1fb,#eaf7f0);
+  --shadow:0 4px 18px rgba(20,32,58,.07); --shadow-lg:0 16px 44px rgba(20,32,58,.16); --radius:16px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Tahoma,"Noto Kufi Arabic",Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.6}
+.ltr{direction:ltr;unicode-bidi:isolate;display:inline-block}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+.emblem{display:block}
+.word{font-weight:800;letter-spacing:1px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1}
+
+/* Hero */
+.hero{background:var(--grad-soft);border-bottom:1px solid var(--border);padding:54px 0 44px}
+.hero .lock{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.hero .word{font-size:64px}
+.hero .en{color:var(--muted);font-size:15px;letter-spacing:3px;margin-top:6px;font-weight:600}
+.hero .ar{font-size:22px;font-weight:700;color:var(--navy);margin-top:18px}
+.hero .sub{color:var(--muted);margin-top:4px}
+.tempbadge{display:inline-block;background:#fdf1dd;color:#9a6a12;border:1px solid #f2d9a8;padding:7px 14px;border-radius:20px;font-size:12.5px;font-weight:700;margin-top:22px}
+
+/* Sections */
+section{padding:46px 0;border-bottom:1px solid var(--border)}
+.kicker{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.kicker .num{font-family:"Segoe UI";font-weight:800;font-size:13px;color:#fff;background:var(--navy);width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center}
+h2{font-size:26px;margin:0}
+.lead{color:var(--muted);margin:6px 0 26px;max-width:680px}
+
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.pad{padding:20px}
+
+/* Logo showcase */
+.logobox{display:flex;align-items:center;justify-content:center;padding:34px;border-radius:var(--radius);border:1px solid var(--border)}
+.logobox.light{background:var(--surface)}
+.logobox.dark{background:var(--navy)}
+.logobox.grad{background:var(--grad)}
+.lockup{display:flex;align-items:center;gap:14px}
+.lockup .word{font-size:38px}
+.lockup .tag{font-size:10.5px;color:var(--muted);letter-spacing:1.5px;font-weight:600;margin-top:3px}
+.dark .word,.grad .word{background:none;-webkit-text-fill-color:#fff;color:#fff}
+.dark .tag,.grad .tag{color:rgba(255,255,255,.8)}
+.donts{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+.dont{flex:1;min-width:150px;font-size:12.5px;padding:12px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border)}
+.dont b{color:var(--absent)}.dont.ok b{color:var(--present)}
+
+/* Colors */
+.swatch{cursor:pointer;transition:.15s}
+.swatch:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg)}
+.swatch .chip{height:92px}
+.swatch .info{padding:13px 15px}
+.swatch .info b{display:block;font-size:14px}
+.swatch .info .en{color:var(--muted);font-size:11.5px;margin:2px 0 8px}
+.swatch .info .hex{font-family:"Segoe UI";font-weight:700;font-size:13px;letter-spacing:.5px}
+.swatch .info .use{color:var(--muted);font-size:11px;margin-top:4px}
+
+/* Gradient */
+.gradbar{height:130px;border-radius:var(--radius);background:var(--grad);display:flex;align-items:flex-end;padding:16px;color:#fff;font-weight:700}
+.code{background:#0f1830;color:#cfe0ff;border-radius:12px;padding:15px 17px;font-family:"Cascadia Code",Consolas,monospace;font-size:12.5px;direction:ltr;text-align:left;overflow:auto;margin-top:14px}
+.code .c-prop{color:#7fd1ff}.code .c-val{color:#ffd28a}
+
+/* Typography */
+.typerow{display:flex;align-items:baseline;gap:16px;padding:14px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap}
+.typerow .meta{color:var(--muted);font-size:12px;min-width:150px}
+.d1{font-size:46px;font-weight:800;color:var(--navy)}
+.h1s{font-size:30px;font-weight:800;color:var(--navy)}
+.h2s{font-size:21px;font-weight:700}
+.bd{font-size:15px}.cap{font-size:12px;color:var(--muted)}
+
+/* Icons */
+.icons{display:grid;grid-template-columns:repeat(7,1fr);gap:14px}
+.iconcard{text-align:center}
+.iconcard .circle{width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;box-shadow:var(--shadow)}
+.iconcard .circle svg{width:30px;height:30px}
+.iconcard small{font-size:12px;font-weight:600;color:var(--ink)}
+@media(max-width:860px){.icons{grid-template-columns:repeat(4,1fr)}}
+
+/* Components */
+.btn{border:0;border-radius:11px;padding:12px 20px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--blue);color:#fff}
+.btn.accent{background:var(--orange);color:#fff}
+.btn.success{background:var(--present);color:#fff}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--ink)}
+.pill{padding:6px 12px;border-radius:15px;font-size:12px;font-weight:700}
+.pill.ok{background:#e6f6ee;color:var(--present)}
+.pill.late{background:#fcf1de;color:var(--late)}
+.pill.abs{background:#fbe9e9;color:var(--absent)}
+.pill.info{background:#e7f2fb;color:var(--info)}
+.statcard{border:1px solid var(--border);border-radius:14px;padding:16px;background:var(--surface)}
+.statcard .l{color:var(--muted);font-size:12px}
+.statcard .v{font-size:26px;font-weight:800;margin-top:6px}
+.inp{width:100%;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font-family:inherit}
+
+/* Application mock */
+.appmock{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;min-height:230px}
+.appmock .side{width:190px;background:var(--grad);color:#fff;padding:18px 14px}
+.appmock .side .m{display:flex;align-items:center;gap:9px;margin-bottom:20px}
+.appmock .side .navi{font-size:12.5px;opacity:.9;padding:9px 10px;border-radius:8px;margin:3px 0}
+.appmock .side .navi.act{background:rgba(255,255,255,.18);font-weight:700}
+.appmock .body{flex:1;background:var(--surface-2);padding:18px}
+.appmock .tb{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+
+.bizcard{aspect-ratio:1.72;border-radius:14px;padding:20px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;justify-content:space-between}
+.bizcard.f{background:var(--surface);border:1px solid var(--border)}
+.bizcard.b{background:var(--grad);color:#fff;align-items:center;justify-content:center;text-align:center}
+
+footer{padding:40px 0;color:var(--muted);font-size:13px}
+#toast{position:fixed;bottom:22px;left:22px;background:var(--navy);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;opacity:0;transition:.3s;z-index:50}
+#toast.show{opacity:1}
+@media(max-width:820px){.g4,.g3{grid-template-columns:repeat(2,1fr)}.hero .word{font-size:46px}.appmock{flex-direction:column}.appmock .side{width:auto}}
+@media print{body{background:#fff}.swatch:hover{transform:none}section{break-inside:avoid}}
+</style>
+</head>
+<body>
+
+<!-- emblem reusable via <use> -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="eg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#16366B"/><stop offset=".5" stop-color="#1E8FD0"/><stop offset="1" stop-color="#34B45E"/></linearGradient>
+  <g id="emblemG">
+    <rect width="72" height="72" rx="18" fill="url(#eg)"/>
+    <path d="M14 50C22 46 31 46 36 50C41 46 50 46 58 50L58 60C50 56 41 56 36 60C31 56 22 56 14 60Z" fill="#fff" opacity=".92"/>
+    <path d="M36 18L54 26L36 34L18 26Z" fill="#fff"/>
+    <path d="M28 30L44 30L42 40C42 43 30 43 30 40Z" fill="#fff"/>
+    <path d="M54 26L56 38" stroke="#fff" stroke-width="1.6"/>
+    <circle cx="56" cy="40.5" r="2.6" fill="#F7941E"/>
+  </g>
+</defs></svg>
+
+<div class="hero"><div class="wrap">
+  <div class="lock">
+    <svg class="emblem" viewBox="0 0 72 72" width="92" height="92"><use href="#emblemG"/></svg>
+    <div>
+      <div class="word">EDUVIA</div>
+      <div class="en">SMART EDUCATION MANAGEMENT</div>
+    </div>
+  </div>
+  <div class="ar">التعليم الذكي … لمستقبل أفضل</div>
+  <div class="sub">منظومة متكاملة لإدارة مؤسستك التعليمية</div>
+  <span class="tempbadge">⚠️ الشعار الحالي مؤقت — هذه الهوية جاهزة لأي نسخة نهائية منه</span>
+</div></div>
+
+<!-- 01 Logo -->
+<section><div class="wrap">
+  <div class="kicker"><span class="num">01</span><h2>الشعار</h2></div>
+  <p class="lead">النسخة الرقمية النظيفة (SVG قابل للتكبير بلا فقدان جودة) للاستخدام في التطبيق والواجهات. الرمز = قبّعة التخرّج فوق كتاب مفتوح داخل درع بالتدرّج المميّز.</p>
+  <div class="grid g3">
+    <div class="logobox light"><div class="lockup"><svg class="emblem" viewBox="0 0 72 72" width="54" height="54"><use href="#emblemG"/></svg><div><div class="word">EDUVIA</div><div class="tag">SMART EDUCATION MANAGEMENT</div></div></div></div>
+    <div class="logobox dark"><div class="lockup"><svg class="emblem" viewBox="0 0 72 72" width="54" height="54"><use href="#emblemG"/></svg><div><div class="word">EDUVIA</div><div class="tag">SMART EDUCATION MANAGEMENT</div></div></div></div>
+    <div class="logobox grad" style="border:0"><svg class="emblem" viewBox="0 0 72 72" width="70" height="70" style="filter:drop-shadow(0 6px 14px rgba(0,0,0,.25))"><use href="#emblemG"/></svg></div>
+  </div>
+  <div class="donts">
+    <div class="dont ok"><b>✔ افعل:</b> احترم مساحة فارغة حول الشعار، واستخدمه على خلفيات نظيفة (فاتحة/كحلية/متدرّجة).</div>
+    <div class="dont"><b>✘ لا تفعل:</b> لا تُشوّه النِّسَب، لا تُغيّر ألوان التدرّج، لا تضعه على خلفية مزدحمة تُضعف وضوحه.</div>
+  </div>
+</div></section>
+
+<!-- 02 Colors -->
+<section><div class="wrap">
+  <div class="kicker"><span class="num">02</span><h2>نظام الألوان</h2></div>
+  <p class="lead">انقر أي لون لنسخ رمزه. الألوان الأساسية مستخرَجة من الشعار؛ والألوان الدلالية تخدم واجهات الحضور (حاضر/متأخّر/غائب).</p>
+  <h3 style="color:var(--muted);font-size:14px;margin:0 0 12px">الألوان الأساسية</h3>
+  <div class="grid g3" id="brandColors"></div>
+  <h3 style="color:var(--muted);font-size:14px;margin:26px 0 12px">الألوان الدلالية (واجهات النظام)</h3>
+  <div class="grid g4" id="semColors"></div>
+  <h3 style="color:var(--muted);font-size:14px;margin:26px 0 12px">المحايدة</h3>
+  <div class="grid g4" id="neutralColors"></div>
+</div></section>
+
+<!-- 03 Gradient -->
+<section><div class="wrap">
+  <div class="kicker"><span class="num">03</span><h2>التدرّج المميّز</h2></div>
+  <p class="lead">توقيع EDUVIA البصري: يتدرّج من الكحلي إلى الأزرق فالتركوازي فالأخضر — يرمز للانتقال من التعلّم إلى النمو. يُستخدم في الرأس، الأزرار الرئيسية، والأشرطة الجانبية.</p>
+  <div class="gradbar">التدرّج الأساسي · Navy → Blue → Teal → Green</div>
+  <div class="code"><span class="c-prop">background</span>: <span class="c-val">linear-gradient(135deg, #16366B 0%, #1E8FD0 45%, #17A39B 72%, #34B45E 100%)</span>;</div>
+</div></section>
+
+<!-- 04 Typography -->
+<section><div class="wrap">
+  <div class="kicker"><span class="num">04</span><h2>الخطوط</h2></div>
+  <p class="lead">خط النظام: <b>Segoe UI</b> للّاتيني و<b>Noto Kufi Arabic / Tahoma</b> للعربي — متوفّر على أجهزة ويندوز ويعمل دون إنترنت. سُلّم واضح من العنوان الكبير إلى النص الثانوي.</p>
+  <div class="card pad">
+    <div class="typerow"><span class="meta">Display · 46px · 800</span><span class="d1">التعليم الذكي لمستقبل أفضل</span></div>
+    <div class="typerow"><span class="meta">عنوان H1 · 30px · 800</span><span class="h1s">لوحة تحكّم المدير</span></div>
+    <div class="typerow"><span class="meta">عنوان H2 · 21px · 700</span><span class="h2s">الحضور والغياب اليوم</span></div>
+    <div class="typerow"><span class="meta">نص أساسي · 15px · 400</span><span class="bd">نظام متكامل يربط البطاقة الذكية بالحضور وإشعار الأولياء لحظيًّا عبر الشبكة المحلية.</span></div>
+    <div class="typerow" style="border:0"><span class="meta">نص ثانوي · 12px</span><span class="cap">آخر تحديث: الآن · بيانات محلية آمنة</span></div>
+  </div>
+</div></section>
+
+<!-- 05 Icons -->
+<section><div class="wrap">
+  <div class="kicker"><span class="num">05</span><h2>الأيقونات — الميزات السبع</h2></div>
+  <p class="lead">مجموعة أيقونات موحّدة (خطّية، بيضاء داخل دائرة بلون الميزة) — نفس ألوان الشعار لضمان الاتساق.</p>
+  <div class="icons" id="feature-icons"></div>
+</div></section>
+
+<!-- 06 Components -->
+<section><div class="wrap">
+  <div class="kicker"><span class="num">06</span><h2>المكوّنات</h2></div>
+  <p class="lead">لبنات الواجهة الجاهزة المستخدمة في التطبيق.</p>
+  <div class="grid g2">
+    <div class="card pad">
+      <div class="cap" style="margin-bottom:12px">الأزرار</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn primary">إجراء رئيسي</button>
+        <button class="btn accent">تنبيه / إبراز</button>
+        <button class="btn success">تأكيد</button>
+        <button class="btn ghost">ثانوي</button>
+      </div>
+      <div class="cap" style="margin:20px 0 12px">الوسوم (الحالات)</div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <span class="pill ok">حاضرة</span><span class="pill late">متأخّرة</span><span class="pill abs">غائبة</span><span class="pill info">مُفعّل</span>
+      </div>
+      <div class="cap" style="margin:20px 0 10px">حقل إدخال</div>
+      <input class="inp" placeholder="ابحث عن تلميذة…">
+    </div>
+    <div class="card pad">
+      <div class="cap" style="margin-bottom:12px">بطاقات المؤشّرات (KPI)</div>
+      <div class="grid g2">
+        <div class="statcard"><div class="l">🎒 إجمالي التلاميذ</div><div class="v">500</div></div>
+        <div class="statcard"><div class="l">✅ نسبة الحضور</div><div class="v" style="color:var(--present)">94.4%</div></div>
+        <div class="statcard"><div class="l">⏰ متأخّرون</div><div class="v" style="color:var(--late)">11</div></div>
+        <div class="statcard"><div class="l">🚫 غائبون</div><div class="v" style="color:var(--absent)">28</div></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 07 Applications -->
+<section><div class="wrap">
+  <div class="kicker"><span class="num">07</span><h2>أمثلة تطبيقية</h2></div>
+  <p class="lead">الهوية مُطبَّقة على واجهة النظام وبطاقة العمل.</p>
+  <div class="appmock" style="margin-bottom:22px">
+    <div class="side">
+      <div class="m"><svg viewBox="0 0 72 72" width="30" height="30"><use href="#emblemG"/></svg><b style="font-size:18px">EDUVIA</b></div>
+      <div class="navi act">🏠 لوحة التحكّم</div><div class="navi">🎒 التلاميذ</div><div class="navi">🗓️ الحضور</div><div class="navi">🚪 الدخول والخروج</div><div class="navi">🔔 الإشعارات</div>
+    </div>
+    <div class="body">
+      <div class="tb"><b class="h2s">لوحة التحكّم</b><span class="pill ok">● النظام يعمل</span></div>
+      <div class="grid g4">
+        <div class="statcard"><div class="l">الحاضرون</div><div class="v" style="color:var(--present)">472</div></div>
+        <div class="statcard"><div class="l">الغائبون</div><div class="v" style="color:var(--absent)">28</div></div>
+        <div class="statcard"><div class="l">النسبة</div><div class="v" style="color:var(--blue)">94.4%</div></div>
+        <div class="statcard"><div class="l">المتأخّرون</div><div class="v" style="color:var(--late)">11</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="grid g2">
+    <div class="bizcard f">
+      <div style="display:flex;align-items:center;gap:10px"><svg viewBox="0 0 72 72" width="40" height="40"><use href="#emblemG"/></svg><div><div class="word" style="font-size:26px">EDUVIA</div><div class="tag" style="font-size:9px;color:var(--muted);letter-spacing:1px">SMART EDUCATION MANAGEMENT</div></div></div>
+      <div><b>الاسم واللقب</b><div class="cap">المدير التجاري · EDUVIA</div><div class="cap ltr">+213 5xx xx xx xx · contact@eduvia.dz</div></div>
+    </div>
+    <div class="bizcard b">
+      <svg viewBox="0 0 72 72" width="52" height="52" style="filter:drop-shadow(0 4px 10px rgba(0,0,0,.3))"><use href="#emblemG"/></svg>
+      <div style="margin-top:14px"><div class="word" style="font-size:30px;-webkit-text-fill-color:#fff;color:#fff">EDUVIA</div><div style="opacity:.85;font-size:13px;margin-top:6px">التعليم الذكي … لمستقبل أفضل</div></div>
+    </div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <b>EDUVIA — الهوية البصرية v1.0</b> · منظومة متكاملة لإدارة مؤسستك التعليمية<br>
+  الشعار المصوّر الحالي مؤقت؛ هذا الدليل (الألوان، التدرّج، الخطوط، الأيقونات، المكوّنات) جاهز ويُطبَّق فورًا على أي نسخة نهائية من الشعار. · اطبع هذه الصفحة (Ctrl+P) لملف PDF للهوية.
+</div></footer>
+
+<div id="toast"></div>
+
+<script>
+const brand=[
+  ["كحلي EDUVIA","EDUVIA Navy","#16366B","العناوين، الشريط الجانبي، النصوص الداكنة"],
+  ["أزرق","Blue","#1E8FD0","اللون الرئيسي، الأزرار، الروابط"],
+  ["تركوازي","Teal","#17A39B","لون ثانوي، تفاصيل"],
+  ["أخضر","Green","#34B45E","النمو، النجاح، الحضور"],
+  ["أخضر فاتح","Lime","#8BC34A","لمسات، تدرّجات"],
+  ["برتقالي","Orange","#F7941E","الإبراز، دعوة للفعل، التأخّر"]
+];
+const sem=[
+  ["حاضر / نجاح","Present","#2FA25A","حالة الحضور"],
+  ["متأخّر / تنبيه","Late","#E08512","حالة التأخّر"],
+  ["غائب / خطر","Absent","#D23B3B","حالة الغياب"],
+  ["معلومة","Info","#1E8FD0","إشعارات، حالات محايدة"]
+];
+const neu=[
+  ["نص أساسي","Ink","#14203A","النصوص"],
+  ["نص ثانوي","Muted","#667694","النصوص الفرعية"],
+  ["حدود","Border","#E6EAF2","الفواصل والإطارات"],
+  ["خلفية","Background","#EEF2F9","خلفية الصفحة"]
+];
+const light=h=>{const c=h.replace('#','');const r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);return (r*299+g*587+b*114)/1000>150;};
+function swatchHTML(a){return a.map(x=>`<div class="card swatch" onclick="copyHex('${x[2]}')">
+  <div class="chip" style="background:${x[2]}"></div>
+  <div class="info"><b>${x[0]}</b><div class="en ltr">${x[1]}</div><div class="hex ltr">${x[2]}</div><div class="use">${x[3]}</div></div></div>`).join('');}
+document.getElementById('brandColors').innerHTML=swatchHTML(brand);
+document.getElementById('semColors').innerHTML=swatchHTML(sem);
+document.getElementById('neutralColors').innerHTML=swatchHTML(neu);
+
+const I={
+  fp:'<path d="M12 4a8 8 0 0 0-8 8M20 12a8 8 0 0 0-8-8M7 13a5 5 0 0 1 10 0v3M10 15v2M14 14v4M12 12v6"/>',
+  face:'<path d="M4 8V5h3M20 8V5h-3M4 16v3h3M20 16v3h-3"/><circle cx="12" cy="11" r="2.6"/><path d="M8.5 17c.8-1.3 2-1.8 3.5-1.8s2.7.5 3.5 1.8"/>',
+  card:'<rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="8" cy="11" r="1.8"/><path d="M13 10h5M13 13h5M6 15.5h7"/>',
+  qr:'<path d="M4 4h5v5H4zM15 4h5v5h-5zM4 15h5v5H4z"/><path d="M15 15h2v2h-2zM19 15h1v2M15 19h5v1"/>',
+  door:'<path d="M14 4H7v16h7M14 4v16"/><path d="M10 12h9m0 0-3-3m3 3-3 3"/>',
+  bell:'<path d="M6 10a6 6 0 0 1 12 0c0 4 2 5 2 5H4s2-1 2-5Z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  bar:'<path d="M5 20V11M12 20V4M19 20v-6"/>'
+};
+const feats=[
+  ["البصمة","fp","#1E8FD0"],["التعرّف على الوجه","face","#17A39B"],["البطاقة الذكية","card","#34B45E"],
+  ["رمز QR","qr","#7C4DD1"],["الدخول والخروج","door","#F7941E"],["إشعارات الأولياء","bell","#E5397F"],["الإحصائيات والتقارير","bar","#1E8FD0"]
+];
+document.getElementById('feature-icons').innerHTML=feats.map(f=>`<div class="iconcard">
+  <div class="circle" style="background:${f[2]}"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${I[f[1]]}</svg></div>
+  <small>${f[0]}</small></div>`).join('');
+
+let tt;
+function copyHex(hex){
+  if(navigator.clipboard) navigator.clipboard.writeText(hex).catch(()=>{});
+  const t=document.getElementById('toast');t.textContent='تم نسخ '+hex+' ✓';t.classList.add('show');
+  clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),1600);
+}
+</script>
+</body>
+</html>
