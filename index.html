@@ -544,6 +544,21 @@ html[data-theme="dark"] .tt .s1,html[data-theme="dark"] .tt .s2,html[data-theme=
       <div class="actions"><button class="btn" onclick="toggleTheme()">تبديل الوضع الليلي/النهاري</button></div>
     </div>
     <div class="panel">
+      <h2>🛡️ سياسة سجلّ السلوك — معلنة</h2>
+      <p class="muted" style="margin:0 0 10px">صُمِّم السجلّ عمدًا <b>مضادًّا لنقائص الأنظمة المرجعية</b> (Wilma الفنلدي): لا سجلّ سلوكي بلا ضمانات.</p>
+      <div class="row"><span>① توازن الفئات</span><b>إيجابي / سلبي — تكافؤ إلزامي (لا 8 مقابل 2)</b></div>
+      <div class="row"><span>② حقّ الاعتراض</span><b>خلال <span id="polReply">—</span> من التسجيل</b></div>
+      <div class="row"><span>③ سقف الاحتفاظ</span><b><span id="polRet">—</span> ثم الأرشفة التلقائية</b></div>
+      <div class="row"><span>مسار المراجعة</span><b>اعتراض ← مراجعة الإدارة ← إلغاء أو تثبيت مُدقَّق</b></div>
+      <div class="actions" style="margin-top:12px"><button class="btn" onclick="runRetention()">🛡️ تطبيق سياسة الاحتفاظ الآن</button></div>
+    </div>
+    <div class="panel">
+      <h2>🔍 سجلّ التدقيق — من اطّلع على ماذا</h2>
+      <p class="muted" style="margin:0 0 12px">كل عملية على سجلات التلميذات تُدوَّن: الفاعل، الدور، العملية، والهدف — بنية شفافية.</p>
+      <div class="actions" style="margin-bottom:12px"><button class="btn" onclick="renderAudit()">🔄 تحديث السجلّ</button></div>
+      <div id="auditList"></div>
+    </div>
+    <div class="panel">
       <h2>📲 نشر تطبيق الأولياء</h2>
       <p class="muted" style="margin:0 0 12px">أدخل رابط تطبيق الأولياء (بعد نشره على الإنترنت) لتوليد رمز QR ولافتة قابلة للطباعة تُعلَّق للأولياء — يمسحونها فيُثبّتون التطبيق دون نسخ أي رابط.</p>
       <input class="search" id="parentUrl" value="https://eduvia-parent-app.netlify.app/" aria-label="رابط تطبيق الأولياء" style="margin-bottom:10px">
@@ -1314,10 +1329,80 @@ let HOMEWORK=[
   {cls:"الكل",subj:"الرياضيات",title:"تمارين الصفحة 45 (من 1 إلى 6)",due:"الأحد 21 سبتمبر"},
   {cls:"الكل",subj:"اللغة العربية",title:"حفظ النشيد وتحضير التعبير الكتابي",due:"الإثنين 22 سبتمبر"}
 ];
-let NOTES=[
-  {sid:null,t:"الأستاذة فاطمة الزهراء",subj:"اللغة العربية",note:"تحسّنٌ ملحوظ في القراءة، أحسنتِ! 🌟",kind:"ok"},
-  {sid:null,t:"المشرفة",subj:"السلوك",note:"الالتزام بالهدوء أثناء الطابور.",kind:"warn"}
+/* ===== سجلّ السلوك — تصميم مضادّ لنقائص Wilma الفنلدي =====
+   الضمانات الثلاث الإلزامية التي يفتقدها Wilma:
+     ① توازن الفئات (إيجابي / سلبي بالنِّصف، لا 8 مقابل 2)
+     ② حقّ الاعتراض للتلميذة (Wilma: قرار المعلم نهائي بلا وسيلة دفاع)
+     ③ سقف مدّة الاحتفاظ (Wilma: "قد تبقى أبد الدهر" بلا سياسة معلنة)  */
+const BEHAV_CATS=[
+  {k:"pos",label:"مشاركة فعّالة"},{k:"pos",label:"تعاون ومساعدة"},
+  {k:"pos",label:"انضباط والتزام"},{k:"pos",label:"تحسّن ملحوظ"},
+  {k:"neg",label:"إخلال بالهدوء"},{k:"neg",label:"عدم إنجاز الواجب"},
+  {k:"neg",label:"تأخّر متكرّر"},{k:"neg",label:"إهمال الأدوات"}
 ];
+const BEHAV_RETENTION_DAYS=180;  /* بعدها يُؤرشف السجلّ تلقائيًا */
+const BEHAV_REPLY_DAYS=7;        /* مهلة حقّ الاعتراض بعد التسجيل */
+let NOTES=[
+  {sid:1,id:"b1",date:"2026-09-15",t:"الأستاذة فاطمة الزهراء",subj:"اللغة العربية",cat:"تحسّن ملحوظ",note:"تحسّنٌ ملحوظ في القراءة، أحسنتِ! 🌟",kind:"pos",status:"قائم"},
+  {sid:1,id:"b2",date:"2026-09-14",t:"المشرفة",subj:"السلوك",cat:"انضباط والتزام",note:"الالتزام بالهدوء أثناء الطابور.",kind:"pos",status:"قائم"},
+  {sid:1,id:"b3",date:"2026-09-13",t:"المشرفة",subj:"السلوك",cat:"إخلال بالهدوء",note:"ضجيج متكرّر أثناء حصّة الرياضيات.",kind:"neg",status:"قائم"}
+];
+function behavCat(l){return BEHAV_CATS.find(c=>c.label===l)||{k:"pos",label:l};}
+function noteKind(n){return (n.kind==="neg"||n.kind==="warn")?"neg":"pos";}
+function daysSince(d){const t=Date.parse(d);return isNaN(t)?0:Math.floor((Date.now()-t)/864e5);}
+function behavBalance(){const act=NOTES.filter(n=>n.status!=="مؤرشف");const pos=act.filter(n=>noteKind(n)==="pos").length;return {pos,neg:act.length-pos,total:act.length};}
+function applyRetention(){let c=0;const cut=new Date(Date.now()-BEHAV_RETENTION_DAYS*864e5).toISOString().slice(0,10);
+  NOTES.forEach(n=>{if(n.status!=="مؤرشف"&&n.date&&n.date<cut){n.status="مؤرشف";c++;}});return c;}
+function runRetention(){const c=applyRetention();audit("تطبيق سياسة احتفاظ سجلّ السلوك","سجلّ السلوك",c?("أُرشف "+c+" ملاحظة"):"لا شيء");renderNtList();toast("سياسة الاحتفاظ 🛡️",c?("أُرشف "+c+" ملاحظة تجاوزت "+BEHAV_RETENTION_DAYS+" يومًا."):"لا ملاحظات تجاوزت السقف.","g");}
+function initPolicies(){const a=document.getElementById("polReply"),b=document.getElementById("polRet");
+  if(a)a.textContent=BEHAV_REPLY_DAYS+" أيام";if(b)b.textContent=BEHAV_RETENTION_DAYS+" يومًا";renderAudit();}
+
+/* ===== سجلّ التدقيق (Audit Trail) — من اطّلع على ماذا ===== */
+let AUDIT=[
+  {ts:"2026-09-15T08:12:00",actor:"المدير",role:"director",action:"عرض كشف النقاط",target:"التلميذة 1",detail:"الفصل الأول"}
+];
+function audit(action,target,detail){
+  AUDIT.unshift({ts:new Date().toISOString().slice(0,19),actor:(ROLES[currentRole]||{label:currentRole}).label,role:currentRole,action,target:target||"—",detail:detail||""});
+  if(AUDIT.length>500)AUDIT.length=500;
+}
+function renderAudit(){
+  const el=document.getElementById("auditList");if(!el)return;
+  el.innerHTML=AUDIT.length?`<div style="overflow:auto;max-height:340px"><table><thead><tr><th>الوقت</th><th>الفاعل</th><th>العملية</th><th>الهدف</th><th>تفصيل</th></tr></thead><tbody>${
+    AUDIT.map(a=>`<tr><td class="ltr">${a.ts.replace("T"," ")}</td><td>${esc(a.actor)}</td><td>${esc(a.action)}</td><td>${esc(a.target)}</td><td>${esc(a.detail)}</td></tr>`).join("")
+  }</tbody></table></div><div class="muted" style="margin-top:8px">${AUDIT.length} عملية مسجّلة · تُحفظ آخر 500 عملية · لا تُحذف إلا بسياسة احتفاظ معلنة.</div>`
+  :'<div class="muted">لا عمليات مسجّلة بعد.</div>';
+}
+/* بطاقة ملاحظة سلوك — مشتركة بين جناح التلميذة ولوحة المعلّم */
+function noteCard(n,mode){
+  const pos=noteKind(n)==="pos";
+  const chip=n.status==="مؤرشف"?'<span class="pill pend">مؤرشف</span>'
+    :n.status==="ملغى"?'<span class="pill ok">ملغى بعد اعتراض</span>'
+    :n.status==="معترَض عليه"?'<span class="pill late">قيد النظر</span>'
+    :`<span class="pill ${pos?"ok":"abs"}">${pos?"إيجابي":"سلبي"}</span>`;
+  const openWindow = n.sid!=null && (n.status==="قائم") && daysSince(n.date)<=BEHAV_REPLY_DAYS;
+  const canObj = mode==="student" && openWindow;
+  const canAdmin = mode==="admin" && n.sid!=null && n.status!=="مؤرشف";
+  return `<div class="notice ${pos?"g":"y"}">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+      <b>${esc(n.cat||n.subj||"ملاحظة")}</b>${chip}
+    </div>
+    <div style="margin-top:5px;font-size:13px">${esc(n.note)}</div>
+    <div class="muted" style="margin-top:5px">${esc(n.date||"")} · ${esc(n.subj||"")}${n.t?" · "+esc(n.t):""}${mode==="admin"&&n.targetName?" · <b>"+esc(n.targetName)+"</b>":""}</div>
+    ${n.reply?`<div class="notice b" style="margin-top:8px"><b>اعتراض التلميذة:</b> ${esc(n.reply)}</div>`:""}
+    ${canObj?`<div style="margin-top:8px"><textarea id="obj_${n.id}" rows="2" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);color:var(--text);font-family:inherit;font-size:13px" placeholder="اكتب سبب اعتراضك — سيُحال إلى الإدارة">${""}</textarea><div class="actions" style="margin-top:8px"><button class="btn" onclick="objectNote('${n.id}')">✍️ تقديم اعتراض</button></div></div>`:""}
+    ${canAdmin&&n.status==="معترَض عليه"?`<div class="actions" style="margin-top:8px"><button class="btn" onclick="revokeNote('${n.id}')">↩️ إلغاء الملاحظة</button><button class="btn" onclick="upholdNote('${n.id}')">✅ تثبيت بعد المراجعة</button></div>`:""}
+  </div>`;
+}
+function objectNote(id){
+  const n=NOTES.find(x=>x.id===id);if(!n)return;
+  const ta=document.getElementById("obj_"+id);const txt=((ta&&ta.value)||"").trim();
+  if(!txt){toast("تنبيه","اكتب سبب الاعتراض أولًا.","a");return;}
+  n.reply=txt;n.status="معترَض عليه";n.replyDate=new Date().toISOString().slice(0,10);
+  audit("تقديم اعتراض على ملاحظة سلوك",n.cat||"",txt);
+  renderStudentWing();toast("تمّ تسجيل اعتراضك ✍️","ستُراجعه الإدارة وتردّ عليك.","g");
+}
+function revokeNote(id){const n=NOTES.find(x=>x.id===id);if(!n)return;n.status="ملغى";audit("إلغاء ملاحظة سلوك بعد اعتراض",n.cat||"",n.reply||"");renderNtList();toast("أُلغيت الملاحظة ↩️","سُجِّل الإلغاء في سجلّ التدقيق.","g");}
+function upholdNote(id){const n=NOTES.find(x=>x.id===id);if(!n)return;n.status="قائم";n.replyDate=null;audit("تثبيت ملاحظة سلوك بعد المراجعة",n.cat||"","");renderNtList();toast("ثُبِّتت الملاحظة ✅","بعد المراجعة.","b");}
 let SUMMONS=[
   {sid:null,name:"عام (كل الأولياء)",reason:"اجتماع أولياء التلاميذ لتقديم منظومة EDUVIA",date:"السبت 20 سبتمبر",status:"مُرسَل"}
 ];
@@ -1354,7 +1439,12 @@ function renderStudentWing(){
   let tt="<thead><tr><th class='t-per'></th>"+TT_DAYS.map(d=>`<th>${d}</th>`).join("")+"</tr></thead><tbody>"+TT.map(row=>`<tr><td class="t-per">${ltr(row[0])}</td>`+row[1].map(sub=>sub==="—"?`<td class="t-off">—</td>`:`<td class="${SUBCLASS[sub]||''}">${sub}</td>`).join("")+"</tr>").join("")+"</tbody>";
   document.getElementById("stimetable").innerHTML=`<div class="panel"><h2>🕘 توقيتي — القسم ${st.cls}</h2><div style="overflow:auto"><table class="tt">${tt}</table></div></div>`;
   document.getElementById("swork").innerHTML=`<div class="panel"><h2>📚 واجباتي المنزلية</h2>${HOMEWORK.filter(h=>h.cls===st.cls||h.cls==="الكل").map(h=>`<div class="notice b"><div style="display:flex;justify-content:space-between;gap:10px"><b>${h.subj}</b><span class="pill late">📅 ${h.due}</span></div><div style="margin-top:5px;font-size:13px">${h.title}</div></div>`).join("")||'<div class="notice">لا واجبات حاليًا.</div>'}<div class="muted" style="margin-top:8px">لا تنسَ إنجاز واجباتك قبل موعدها 📖</div></div>`;
-  document.getElementById("snotes").innerHTML=`<div class="panel"><h2>📌 ملاحظاتي والسلوك</h2><div class="notice g">تقديري السلوكي العام: <b>${st.behavior}</b></div>${NOTES.filter(n=>n.sid===st.id||n.sid==null).map(n=>`<div class="notice ${n.kind==='ok'?'g':n.kind==='warn'?'y':'b'}"><div style="display:flex;justify-content:space-between;gap:10px"><b>${n.t}</b><span class="muted">${n.subj}</span></div><div style="margin-top:5px;font-size:13px">${n.note}</div></div>`).join("")}</div>`;
+  const _nb=behavBalance();
+  document.getElementById("snotes").innerHTML=`<div class="panel"><h2>📌 ملاحظاتي والسلوك</h2>
+    <div class="notice g">تقديري السلوكي العام: <b>${esc(st.behavior)}</b></div>
+    <div class="notice b" style="font-size:12.5px"><b>حقوقك مضمونة:</b> سجلّ السلوك <b>متوازن</b> (إيجابي/سلبي)، ولك <b>حقّ الاعتراض</b> على أي ملاحظة خلال ${BEHAV_REPLY_DAYS} أيام، ولا تُحفظ الملاحظات إلا <b>${BEHAV_RETENTION_DAYS} يومًا</b> ثم تُؤرشف.</div>
+    <div class="muted" style="margin:4px 0 6px">توازن سجلّك: ${_nb.pos} إيجابي · ${_nb.neg} سلبي</div>
+    ${NOTES.filter(n=>n.sid===st.id).map(n=>noteCard(n,"student")).join("")||'<div class="muted">لا ملاحظات مسجّلة عليك. 🌱</div>'}</div>`;
   document.getElementById("ssummons").innerHTML=`<div class="panel"><h2>📨 استدعاءات وليّ أمري</h2>${SUMMONS.filter(x=>x.sid===st.id||x.sid==null).map(x=>`<div class="notice y"><b>${x.reason}</b><div class="muted" style="margin-top:4px">📅 ${x.date} · الحالة: ${x.status}</div></div>`).join("")||'<div class="notice">لا توجد استدعاءات.</div>'}</div>`;
   document.getElementById("sannounce").innerHTML=`<div class="panel"><h2>📢 إعلانات المؤسسة</h2>${announcements.map(a=>`<div class="notice b"><div style="display:flex;justify-content:space-between;gap:10px"><b>${a.title}</b><span class="muted">${a.time}</span></div><div style="margin-top:5px;font-size:13px">${a.body}</div></div>`).join("")}</div>`;
   document.getElementById("complaints").innerHTML=`
@@ -1408,7 +1498,7 @@ function renderTeacherTools(){
     </div>
     <div class="panel"><h2>📌 ملاحظة / رسالة لتلميذ</h2>
       ${L("التلميذ")}<select class="sel" id="ntSid" aria-label="التلميذ">${students.map(s=>`<option value="${s.id}">${s.name} · ${s.cls}</option>`).join("")}</select>
-      ${L("النوع")}<select class="sel" id="ntKind" aria-label="النوع"><option value="ok">تشجيع 🌟</option><option value="info">ملاحظة</option><option value="warn">تنبيه</option></select>
+      ${L("الفئة (متوازنة إلزاميًا)")}<select class="sel" id="ntCat" aria-label="فئة السلوك">${BEHAV_CATS.map(c=>`<option value="${c.label}">${c.k==="pos"?"➕":"➖"} ${c.label}</option>`).join("")}</select>
       ${L("النص")}<textarea id="ntText" rows="2" ${TA} placeholder="نص الملاحظة..." aria-label="نص الملاحظة"></textarea>
       <div class="actions" style="margin-top:12px"><button class="btn primary" onclick="postNote()">📌 إرسال للتلميذ</button></div>
       <div id="ntList" style="margin-top:14px"></div>
@@ -1418,7 +1508,13 @@ function renderTeacherTools(){
   renderHwList(); renderNtList();
 }
 function renderHwList(){const el=document.getElementById("hwList");if(!el)return;el.innerHTML=HOMEWORK.map(h=>`<div class="notice b"><div style="display:flex;justify-content:space-between;gap:10px"><b>${h.subj} · ${h.cls}</b><span class="pill late">📅 ${h.due}</span></div><div style="margin-top:5px;font-size:13px">${h.title}</div></div>`).join("")||'<div class="muted">لا واجبات منشورة بعد.</div>';}
-function renderNtList(){const el=document.getElementById("ntList");if(!el)return;const sent=NOTES.filter(n=>n.sid!=null);el.innerHTML=sent.length?sent.map(n=>{const s=students.find(x=>x.id===n.sid);return `<div class="notice ${n.kind==='ok'?'g':n.kind==='warn'?'y':'b'}"><b>${s?s.name:''}</b><div style="margin-top:4px;font-size:13px">${n.note}</div></div>`;}).join(""):'<div class="muted">لا ملاحظات مُرسَلة بعد.</div>';}
+function renderNtList(){
+  const el=document.getElementById("ntList");if(!el)return;
+  const sent=NOTES.filter(n=>n.sid!=null);
+  const b=behavBalance();
+  const bal=`<div class="notice ${b.neg>b.pos?"y":"g"}"><b>توازن السجلّ:</b> ${b.pos} إيجابي · ${b.neg} سلبي — ${b.neg>b.pos?"⚠️ التوازن مختلّ؛ التصميم يوجب تكافؤ الفئتين (درسٌ من نقائص Wilma).":"متوازن ✅"}</div>`;
+  el.innerHTML=bal+(sent.length?sent.map(n=>{const s=students.find(x=>x.id===n.sid);n.targetName=s?s.name:"—";return noteCard(n,"admin");}).join(""):'<div class="muted">لا ملاحظات مُرسَلة بعد.</div>');
+}
 function postHomework(){
   const cls=document.getElementById("hwCls").value,subj=document.getElementById("hwSubj").value;
   const title=esc(document.getElementById("hwText").value.trim()),due=esc(document.getElementById("hwDue").value.trim())||"قريبًا";
@@ -1427,12 +1523,14 @@ function postHomework(){
   toast("تمّ النشر 📚","سيظهر الواجب لدى تلاميذ "+cls+".","g");
 }
 function postNote(){
-  const sid=+document.getElementById("ntSid").value,kind=document.getElementById("ntKind").value;
-  const note=esc(document.getElementById("ntText").value.trim());
+  const sid=+document.getElementById("ntSid").value,cat=document.getElementById("ntCat").value;
+  const note=document.getElementById("ntText").value.trim();
   if(!note){toast("تنبيه","اكتب نص الملاحظة أولًا.","a");return;}
-  const s=students.find(x=>x.id===sid);
-  NOTES.unshift({sid,t:"المعلّم",subj:"ملاحظة",note,kind});document.getElementById("ntText").value="";renderNtList();
-  toast("تمّ الإرسال 📌","وصلت الملاحظة إلى "+(s?s.name:"التلميذ")+".","g");
+  const s=students.find(x=>x.id===sid),kind=behavCat(cat).k;
+  NOTES.unshift({sid,id:"b"+Date.now(),date:new Date().toISOString().slice(0,10),t:"المعلّم",subj:"السلوك",cat,note,kind,status:"قائم"});
+  audit("تسجيل ملاحظة سلوك",s?s.name:String(sid),cat+" · "+kind);
+  document.getElementById("ntText").value="";renderNtList();
+  toast("تمّ الإرسال 📌","وصلت إلى "+(s?s.name:"التلميذة")+"، ولها حقّ الاعتراض "+BEHAV_REPLY_DAYS+" أيام.","g");
 }
 function renderSummons(){
   const host=document.getElementById("sumForm");
@@ -1599,6 +1697,8 @@ function printNationalReport(){
 
 /* تشغيل */
 buildData();
+applyRetention();
+initPolicies();
 render();
 clock();setInterval(clock,1000);
 </script>
