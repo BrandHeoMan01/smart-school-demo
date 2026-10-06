@@ -489,8 +489,18 @@ html[data-theme="dark"] .tt .s1,html[data-theme="dark"] .tt .s2,html[data-theme=
   <!-- Notifications -->
   <section id="notifications" class="page hidden">
     <div class="panel">
-      <div class="section-head"><h2>🔔 سجلّ الإشعارات المُرسَلة للأولياء</h2><button class="btn" onclick="sendAbsenceAlerts()">📩 تنبيه الغياب الآن</button></div>
+      <h2>📡 قنوات الإشعار — القناة الواحدة تفشل دائمًا</h2>
+      <p class="muted" style="margin:0 0 10px">درسٌ موثّق من Wilma الفنلدي: رغم كونه إلزاميًا، استمرّت العائلات في استخدام البريد والهاتف وSMS — فالقناة الواحدة لا تصل الجميع. اختر القنوات الملائمة:</p>
+      <div class="actions" id="chanPick"></div>
+      <div id="chanStats" style="margin-top:12px"></div>
+    </div>
+    <div class="panel">
+      <div class="section-head"><h2>🔔 سجلّ الإشعارات المُرسَلة للأولياء</h2><button class="btn primary" onclick="sendAbsenceAlerts()">📩 إرسال تنبيه الغياب الآن</button></div>
       <div id="notifList"></div>
+    </div>
+    <div class="panel">
+      <div class="section-head"><h2>✉️ صندوق الصادر</h2><span class="muted" id="outboxCount"></span></div>
+      <div id="outboxList"></div>
     </div>
   </section>
 
@@ -940,6 +950,7 @@ function renderNotifs(){
   document.getElementById("notifList").innerHTML=notifs.length?notifs.map(n=>
     `<div class="notice ${cls[n.type]}">${ltr(n.time)} · ${icons[n.type]} ${n.text}</div>`).join("")
     :'<div class="notice">لا توجد إشعارات.</div>';
+  renderChannels();renderOutbox();
 }
 function setCStatus(i,v){if(complaints[i]){complaints[i].status=v;renderInbox();toast("تحديث ✅","تم تحديث حالة الطلب.","g");}}
 function renderInbox(){
@@ -975,13 +986,61 @@ function markPresent(id){
   notifs.unshift({time:hm,type:"entry",text:`تحضير يدوي: سُجّلت ${st.name} (${st.cls}) حاضرةً.`});
   render();toast("تحضير يدوي ✅",`${st.name} · ${st.cls}`,"g");
 }
+/* ===== القنوات المتعددة — درس: القناة الواحدة تفشل دائمًا (Wilma الفنلدي) =====
+   لا نراهن على تطبيق واحد يصل كل عائلة: تطبيق + SMS + اتصال هاتفي. */
+const CHANNELS=[
+  {k:"app",label:"تطبيق EDUVIA",ic:"📱"},
+  {k:"sms",label:"رسالة SMS",ic:"✉️"},
+  {k:"call",label:"اتصال هاتفي",ic:"📞"}
+];
+let activeChannels={app:true,sms:true,call:false};
+let OUTBOX=[];
+function smsBody(st){return `EDUVIA — ابتدائية النور: لم تحضر ابنتكم ${st.name} (${st.cls}) اليوم. للاستفسار يرجى الاتصال بالإدارة.`;}
+function queueMsg(st,text,channel){
+  OUTBOX.unshift({id:"m"+Date.now()+Math.random().toString(36).slice(2,6),sid:st.id,phone:st.phone,name:st.name,parent:st.parent,text,channel,status:"في الانتظار",time:nowHM()});
+}
+function renderChannels(){
+  const el=document.getElementById("chanPick");if(!el)return;
+  el.innerHTML=CHANNELS.map(c=>`<button class="btn ${activeChannels[c.k]?"primary":""}" onclick="toggleChannel('${c.k}')">${c.ic} ${c.label} ${activeChannels[c.k]?"✓":""}</button>`).join("");
+  const el2=document.getElementById("chanStats");
+  if(el2)el2.innerHTML=`<div class="notice b" style="font-size:12.5px">القنوات النشطة: <b>${CHANNELS.filter(c=>activeChannels[c.k]).map(c=>c.label).join(" + ")||"لا شيء — لن يُرسَل أي تنبيه"}</b> · عناصر في الصادر: <b>${OUTBOX.length}</b>${OUTBOX.length?" (تُفتح بضغطة في تطبيق الرسائل أو الاتصال)":""}</div>`;
+}
+function toggleChannel(k){activeChannels[k]=!activeChannels[k];renderChannels();}
+function renderOutbox(){
+  const el=document.getElementById("outboxList");if(!el)return;
+  const cnt=document.getElementById("outboxCount");
+  const pend=OUTBOX.filter(m=>m.status==="في الانتظار").length;
+  if(cnt)cnt.textContent=`${OUTBOX.length} عنصر · ${pend} في الانتظار`;
+  el.innerHTML=OUTBOX.length?`<div class="muted" style="margin-bottom:8px">تُنفَّذ من هاتف المؤسسة بضغطة واحدة — لا حاجة لبوابة مدفوعة في النسخة التجريبية. أمّا في النسخة الحقيقية فتُرسَل آليًا عبر بوابة SMS.</div>`+
+    OUTBOX.map(m=>{const sms=m.channel!=="call";
+      return `<div class="notice ${m.status==="أُرسلت"?'g':'y'}">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <b>${esc(m.parent)} — ${esc(m.name)}</b><span class="pill ${m.status==="أُرسلت"?"ok":"pend"}">${sms?"✉️ SMS":"📞 اتصال"} · ${m.status}</span>
+      </div>
+      <div class="muted ltr" style="margin-top:4px">${ltr(fmtPhone(m.phone))}</div>
+      <div style="margin-top:6px;font-size:13px">${esc(m.text)}</div>
+      <div class="actions" style="margin-top:8px">
+        <a class="btn primary" href="${sms?"sms:"+m.phone+"?body="+encodeURIComponent(m.text):"tel:"+m.phone}" onclick="markSent('${m.id}')">${sms?"✉️ فتح في تطبيق الرسائل":"📞 اتصال بالوليّ"}</a>
+        <button class="btn" onclick="copyMsg('${m.id}')">📋 نسخ النصّ</button>
+      </div></div>`;}).join(""):'<div class="muted">لا عناصر في الصندوق الصادر بعد.</div>';
+}
+function markSent(id){const m=OUTBOX.find(x=>x.id===id);if(m&&m.status!=="أُرسلت"){m.status="أُرسلت";audit(m.channel==="call"?"اتصال هاتفي بوليّ":"إرسال SMS",m.name,m.phone);setTimeout(renderOutbox,150);}}
+function copyMsg(id){const m=OUTBOX.find(x=>x.id===id);if(!m)return;if(navigator.clipboard)navigator.clipboard.writeText(m.text).then(()=>toast("نُسخ 📋","نصّ الرسالة في الحافظة.","g")).catch(()=>toast("تعذّر النسخ","انسخ النصّ يدويًا.","a"));else toast("غير مدعوم","المتصفّح لا يدعم النسخ التلقائي.","a");}
+
 function sendAbsenceAlerts(){
   const ab=students.filter(s=>s.state==="absent");
   if(!ab.length){toast("الغياب","لا توجد غائبات لإرسال تنبيه.","g");return;}
-  const t=nowHM();
-  ab.forEach(st=>notifs.unshift({time:t,type:"absence",text:`تنبيه غياب إلى ${st.parent}: لم تحضر ابنته ${st.name} (${st.cls}) اليوم.`}));
-  unread+=ab.length;renderNotifs();updateBell();
-  toast("📩 تنبيهات الغياب",`أُرسلت ${ab.length} رسالة تنبيه إلى أولياء الغائبات.`,"a");
+  if(!CHANNELS.some(c=>activeChannels[c.k])){toast("تنبيه","اختر قناة واحدة على الأقل قبل الإرسال.","a");return;}
+  const t=nowHM();let nApp=0,nSms=0,nCall=0;
+  ab.forEach(st=>{
+    if(activeChannels.app){notifs.unshift({time:t,type:"absence",channel:"app",text:`تنبيه غياب إلى ${st.parent}: لم تحضر ابنته ${st.name} (${st.cls}) اليوم.`});nApp++;}
+    if(activeChannels.sms){queueMsg(st,smsBody(st),"sms");nSms++;}
+    if(activeChannels.call){queueMsg(st,`اتصال بـ ${st.parent} بشأن غياب ${st.name} (${st.cls}).`,"call");nCall++;}
+  });
+  if(nApp){unread+=nApp;updateBell();}
+  audit("إرسال تنبيه غياب",ab.length+" تلميذة",`تطبيق:${nApp} · SMS:${nSms} · اتصال:${nCall}`);
+  renderNotifs();renderChannels();renderOutbox();
+  toast("📩 تنبيهات الغياب",`${nApp} إشعار تطبيق · ${nSms} SMS · ${nCall} اتصال — القنوات المتعددة تضمن الوصول.`,"a");
 }
 function openAddStudent(){document.getElementById("modal").classList.remove("hidden");}
 function closeModal(){document.getElementById("modal").classList.add("hidden");}
@@ -1715,7 +1774,7 @@ function saveState(){
     try{
       localStorage.setItem(LS_KEY,JSON.stringify({
         v:1,savedAt:new Date().toISOString(),
-        students,teachers,gateLog,notifs,NOTES,AUDIT,SUMMONS,complaints,HOMEWORK,announcements,
+        students,teachers,gateLog,notifs,NOTES,AUDIT,SUMMONS,complaints,HOMEWORK,announcements,OUTBOX,activeChannels,
         nextId,nextCard
       }));
     }catch(e){}
@@ -1737,6 +1796,8 @@ function loadState(){
     if(d.complaints)complaints=d.complaints;
     if(d.HOMEWORK)HOMEWORK=d.HOMEWORK;
     if(d.announcements)announcements=d.announcements;
+    if(Array.isArray(d.OUTBOX))OUTBOX=d.OUTBOX;
+    if(d.activeChannels)activeChannels=d.activeChannels;
     nextId=Math.max(d.nextId||1,...students.map(s=>s.id+1));
     if(d.nextCard)nextCard=d.nextCard;
     return true;
