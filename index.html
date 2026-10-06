@@ -546,7 +546,7 @@ html[data-theme="dark"] .tt .s1,html[data-theme="dark"] .tt .s2,html[data-theme=
     <div class="panel">
       <h2>📲 نشر تطبيق الأولياء</h2>
       <p class="muted" style="margin:0 0 12px">أدخل رابط تطبيق الأولياء (بعد نشره على الإنترنت) لتوليد رمز QR ولافتة قابلة للطباعة تُعلَّق للأولياء — يمسحونها فيُثبّتون التطبيق دون نسخ أي رابط.</p>
-      <input class="search" id="parentUrl" value="https://eduvia-parent.netlify.app/" aria-label="رابط تطبيق الأولياء" style="margin-bottom:10px">
+      <input class="search" id="parentUrl" value="https://eduvia-parent-app.netlify.app/" aria-label="رابط تطبيق الأولياء" style="margin-bottom:10px">
       <div class="actions"><button class="btn primary" onclick="genParentQR()">🔳 توليد الرمز</button><button class="btn" onclick="printParentPoster()">🖨️ طباعة لافتة A4</button></div>
       <div id="parentQR" style="margin-top:16px;display:flex;flex-wrap:wrap;justify-content:center"></div>
     </div>
@@ -1260,13 +1260,13 @@ function qrSVG(text,px){
   return `<svg viewBox="0 0 ${total} ${total}" width="${px}" height="${px}" shape-rendering="crispEdges" style="background:#fff;border-radius:10px"><rect width="${total}" height="${total}" fill="#fff"/><g fill="#000">${rects}</g></svg>`;
 }
 function genParentQR(){
-  const url=(document.getElementById("parentUrl").value||"").trim()||"https://eduvia-parent.netlify.app/";
+  const url=(document.getElementById("parentUrl").value||"").trim()||"https://eduvia-parent-app.netlify.app/";
   const h=document.getElementById("parentQR");
   try{h.innerHTML=qrSVG(url,240)+`<div class="muted" style="width:100%;text-align:center;direction:ltr;margin-top:8px">${url}</div>`;}
   catch(e){h.innerHTML='<div class="notice a">الرابط طويل جدًا لتوليد رمز محلّي.</div>';}
 }
 function printParentPoster(){
-  const url=(document.getElementById("parentUrl").value||"").trim()||"https://eduvia-parent.netlify.app/";
+  const url=(document.getElementById("parentUrl").value||"").trim()||"https://eduvia-parent-app.netlify.app/";
   let qr;try{qr=qrSVG(url,200);}catch(e){qr='<div>الرابط طويل جدًا</div>';}
   const B=(ic,bg,t,d)=>`<div style="border:1px solid #e6eaf2;border-radius:12px;padding:10px;display:flex;gap:9px;align-items:flex-start">
     <div style="width:36px;height:36px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${ic}</div>
