@@ -600,6 +600,16 @@ html[data-theme="dark"] .tt .s1,html[data-theme="dark"] .tt .s2,html[data-theme=
       </div>
       <div class="muted" style="margin-top:10px">💡 انقر اسم التلميذة لعرض ملفها الشامل · النقاط من 10 · المعدّل مرجّح بالمعاملات.</div>
     </div>
+    <div class="panel">
+      <h2>🧪 دفتر النقاط الوصفي — شفافية التقييم</h2>
+      <p class="muted" style="margin:0 0 10px">فلسفة التقييم الفنلدية منقولة بوعي: <b>تقدير وصفي</b> بجانب الرقم، و<b>التقييم التكويني لا يؤثّر على المعدّل ولا يُوثَّق</b> (OPH)، و<b>مُراكمات شفافة</b> فقط — لا «قانون القوة» المبهم الذي يصعب تبريره أمام مديرية.</p>
+      <div class="actions" style="margin-bottom:12px">
+        <select class="sel" id="bkStu" onchange="renderBook()" aria-label="التلميذة"></select>
+        <select class="sel" id="bkSubj" onchange="renderBook()" aria-label="المادة"></select>
+        <select class="sel" id="bkAcc" onchange="setAcc(this.value)" aria-label="طريقة الحساب"></select>
+      </div>
+      <div id="bkOut"></div>
+    </div>
   </section>
 
   <!-- Timetable -->
@@ -935,7 +945,7 @@ function render(){
   document.getElementById("setStudents").textContent=s.total+" تلميذة";
 
   // الوحدات الأكاديمية والإدارية
-  renderGrades(); renderTimetable(); renderEvents(); renderAnnouncements(); renderInbox(); renderTeacherTools(); renderSummons();
+  renderGrades(); renderBook(); renderTimetable(); renderEvents(); renderAnnouncements(); renderInbox(); renderTeacherTools(); renderSummons();
 
   updateBell();
   saveState();
@@ -1154,6 +1164,67 @@ function studentRank(st,term){
 function fillSelect(id,opts){
   const el=document.getElementById(id);if(!el)return;
   if(el.options.length!==opts.length) el.innerHTML=opts.map(o=>`<option value="${o}">${o}</option>`).join("");
+}
+/* ===== دفتر النقاط الوصفي — فلسفة التقييم الفنلدية منقولة بوعي =====
+   ① تقدير وصفي بجانب الرقم (الابتدائي الفنلدي: تقييم لفظي لا رقمي)
+   ② التقييم التكويني لا يؤثّر على المعدّل ولا يتطلّب توثيقًا
+   ③ مُراكمات شفافة فقط — لا "قانون القوة" المبهم (درس PowerSchool) */
+const ACCUMULATORS=[
+  {k:"avg", label:"المتوسط (شفاف)",              calc:ms=>ms.length?+(ms.reduce((a,b)=>a+b,0)/ms.length).toFixed(2):null},
+  {k:"last",label:"الأحدث (يمثّل المستوى الحالي)",calc:ms=>ms.length?ms[ms.length-1]:null},
+  {k:"max", label:"الأعلى (يكافئ التميّز)",       calc:ms=>ms.length?Math.max(...ms):null}
+];
+const QUAL_LEVELS=[
+  {min:8.5,label:"ممتاز",k:"ok"},{min:7,label:"جيد جدًا",k:"ok"},
+  {min:5,label:"متوسط",k:"warn"},{min:0,label:"يحتاج دعمًا",k:"neg"}
+];
+function qualLevel(m){return m==null?{label:"—",k:""}:QUAL_LEVELS.find(l=>m>=l.min);}
+function accumulator(k){return ACCUMULATORS.find(a=>a.k===k)||ACCUMULATORS[0];}
+function clampMark(m){return Math.max(0,Math.min(10,Math.round(m*10)/10));}
+let BOOK={};
+function bookOf(sid,subj,base){
+  const k=sid+"|"+subj;
+  if(!BOOK[k])BOOK[k]={acc:"avg",entries:[
+    {label:"فرض 1",          mark:clampMark(base+0.6),kind:"summative"},
+    {label:"مشاركة صفّية",   mark:clampMark(base+1.2),kind:"formative"},
+    {label:"فرض 2",          mark:clampMark(base),    kind:"summative"},
+    {label:"اختبار الفصل",   mark:clampMark(base-0.4),kind:"summative"}
+  ]};
+  return BOOK[k];
+}
+function computeMark(b){
+  const s=b.entries.filter(e=>e.kind!=="formative").map(e=>e.mark);
+  const use=s.length?s:b.entries.map(e=>e.mark);
+  return accumulator(b.acc).calc(use);
+}
+function setAcc(k){const sid=+document.getElementById("bkStu").value,subj=document.getElementById("bkSubj").value;const st=students.find(x=>x.id===sid);if(!st)return;bookOf(sid,subj,st.marks[0][subj]).acc=k;renderBook();}
+function renderBook(){
+  const ss=document.getElementById("bkStu"),sj=document.getElementById("bkSubj");if(!ss||!sj)return;
+  if(!ss.options.length)ss.innerHTML=students.map(s=>`<option value="${s.id}">${s.name} · ${s.cls}</option>`).join("");
+  if(!sj.options.length)sj.innerHTML=SUBJECTS.map(s=>`<option value="${s.n}">${s.n}</option>`).join("");
+  const accSel=document.getElementById("bkAcc");
+  if(accSel&&!accSel.options.length)accSel.innerHTML=ACCUMULATORS.map(a=>`<option value="${a.k}">${a.label}</option>`).join("");
+  const sid=+ss.value||(students[0]&&students[0].id),subj=sj.value||SUBJECTS[0].n;
+  const st=students.find(x=>x.id===sid);if(!st)return;
+  const b=bookOf(sid,subj,st.marks[0][subj]);
+  if(accSel)accSel.value=b.acc;
+  const m=computeMark(b),q=qualLevel(m);
+  const sum=b.entries.filter(e=>e.kind!=="formative").map(e=>e.mark);
+  document.getElementById("bkOut").innerHTML=`
+    <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+      ${kpiCard("المعدّل المحسوب","🧮",m==null?"—":m+" /10","blue")}
+      ${kpiCard("التقدير الوصفي","🏷️",q.label,q.k==="ok"?"green":q.k==="warn"?"amber":"red")}
+      ${kpiCard("طريقة الحساب","⚖️",accumulator(b.acc).label.split(" ")[0],"")}
+    </div>
+    <table><thead><tr><th>التقييم</th><th>النوع</th><th>النقطة</th><th>يؤثّر على المعدّل؟</th></tr></thead><tbody>
+    ${b.entries.map(e=>`<tr>
+      <td>${esc(e.label)}</td>
+      <td>${e.kind==="formative"?'<span class="pill pend">تكويني</span>':'<span class="pill ok">تحصيلي</span>'}</td>
+      <td class="${markClass(e.mark)}"><b>${e.mark}</b></td>
+      <td>${e.kind==="formative"?'<span class="muted">لا — لا يُوثَّق ولا يؤثّر</span>':'✅ نعم'}</td>
+    </tr>`).join("")}
+    </tbody></table>
+    <div class="notice b" style="margin-top:10px;font-size:12.5px"><b>الحساب بشفافية:</b> «${accumulator(b.acc).label}» على ${sum.length} تقييم تحصيلي (${sum.join(" · ")}) = <b>${m}</b>. التقييم التكويني مستبعَد بالقاعدة الفنلدية، فيبقى المعلم حرًّا في الملاحظة الصفّية دون عبء توثيق.</div>`;
 }
 function renderGrades(){
   const cls=classesSorted(); fillSelect("grClass",cls);
@@ -1774,7 +1845,7 @@ function saveState(){
     try{
       localStorage.setItem(LS_KEY,JSON.stringify({
         v:1,savedAt:new Date().toISOString(),
-        students,teachers,gateLog,notifs,NOTES,AUDIT,SUMMONS,complaints,HOMEWORK,announcements,OUTBOX,activeChannels,
+        students,teachers,gateLog,notifs,NOTES,AUDIT,SUMMONS,complaints,HOMEWORK,announcements,OUTBOX,activeChannels,BOOK,
         nextId,nextCard
       }));
     }catch(e){}
@@ -1798,6 +1869,7 @@ function loadState(){
     if(d.announcements)announcements=d.announcements;
     if(Array.isArray(d.OUTBOX))OUTBOX=d.OUTBOX;
     if(d.activeChannels)activeChannels=d.activeChannels;
+    if(d.BOOK&&typeof d.BOOK==="object")BOOK=d.BOOK;
     nextId=Math.max(d.nextId||1,...students.map(s=>s.id+1));
     if(d.nextCard)nextCard=d.nextCard;
     return true;
