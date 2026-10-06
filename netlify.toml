@@ -1,0 +1,4 @@
+[build]
+  publish = "."
+  # استثناء الملفات الداخلية من الموقع المنشور (تبقى في المستودع)
+  command = "rm -f pilot-proposal.html ARCHITECTURE.md README-PWA.md serve.js"
