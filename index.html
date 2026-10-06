@@ -559,6 +559,12 @@ html[data-theme="dark"] .tt .s1,html[data-theme="dark"] .tt .s2,html[data-theme=
       <div id="auditList"></div>
     </div>
     <div class="panel">
+      <h2>💾 حفظ البيانات</h2>
+      <div class="row"><span>الحالة</span><b id="lsStatus">—</b></div>
+      <p class="muted" style="margin:8px 0 12px">تُحفظ التعديلات تلقائيًا في هذا المتصفّح (localStorage) وتبقى بعد إعادة التحميل — حتى دون إنترنت. في النسخة الحقيقية تُزامَن مع الخادم المحلي.</p>
+      <div class="actions"><button class="btn" onclick="resetDemo()">↺ إعادة تعيين النسخة التجريبية</button></div>
+    </div>
+    <div class="panel">
       <h2>📲 نشر تطبيق الأولياء</h2>
       <p class="muted" style="margin:0 0 12px">أدخل رابط تطبيق الأولياء (بعد نشره على الإنترنت) لتوليد رمز QR ولافتة قابلة للطباعة تُعلَّق للأولياء — يمسحونها فيُثبّتون التطبيق دون نسخ أي رابط.</p>
       <input class="search" id="parentUrl" value="https://eduvia-parent-app.netlify.app/" aria-label="رابط تطبيق الأولياء" style="margin-bottom:10px">
@@ -922,6 +928,7 @@ function render(){
   renderGrades(); renderTimetable(); renderEvents(); renderAnnouncements(); renderInbox(); renderTeacherTools(); renderSummons();
 
   updateBell();
+  saveState();
 }
 function kpiCard(label,icon,value,cls){return `<div class="card"><div class="label">${icon} ${label}</div><div class="value ${cls}">${value}</div></div>`;}
 function bestClass(c){let best="—",bp=-1;for(const k in c){const a=c[k].filter(x=>x.state!=="absent"&&x.state!=="pending").length/c[k].length;if(a>bp){bp=a;best=k;}}return best;}
@@ -1354,8 +1361,11 @@ function behavBalance(){const act=NOTES.filter(n=>n.status!=="مؤرشف");const
 function applyRetention(){let c=0;const cut=new Date(Date.now()-BEHAV_RETENTION_DAYS*864e5).toISOString().slice(0,10);
   NOTES.forEach(n=>{if(n.status!=="مؤرشف"&&n.date&&n.date<cut){n.status="مؤرشف";c++;}});return c;}
 function runRetention(){const c=applyRetention();audit("تطبيق سياسة احتفاظ سجلّ السلوك","سجلّ السلوك",c?("أُرشف "+c+" ملاحظة"):"لا شيء");renderNtList();toast("سياسة الاحتفاظ 🛡️",c?("أُرشف "+c+" ملاحظة تجاوزت "+BEHAV_RETENTION_DAYS+" يومًا."):"لا ملاحظات تجاوزت السقف.","g");}
-function initPolicies(){const a=document.getElementById("polReply"),b=document.getElementById("polRet");
-  if(a)a.textContent=BEHAV_REPLY_DAYS+" أيام";if(b)b.textContent=BEHAV_RETENTION_DAYS+" يومًا";renderAudit();}
+function initPolicies(restored){const a=document.getElementById("polReply"),b=document.getElementById("polRet");
+  if(a)a.textContent=BEHAV_REPLY_DAYS+" أيام";if(b)b.textContent=BEHAV_RETENTION_DAYS+" يومًا";
+  const ls=document.getElementById("lsStatus");
+  if(ls)ls.textContent=restored?"مُستعادة من هذا المتصفّح ✅":"نسخة تجريبية جديدة";
+  renderAudit();}
 
 /* ===== سجلّ التدقيق (Audit Trail) — من اطّلع على ماذا ===== */
 let AUDIT=[
@@ -1695,10 +1705,53 @@ function printNationalReport(){
   document.body.classList.add("printing");window.print();setTimeout(()=>document.body.classList.remove("printing"),400);
 }
 
+/* ===== الثبات — تبقى البيانات بعد إعادة تحميل الصفحة (localStorage) =====
+   في النسخة الحقيقية تُستبدَل هذه الطبقة بمزامنة مع الخادم. */
+const LS_KEY="eduvia-smart-school-v1";
+let _saveTimer=null;
+function saveState(){
+  clearTimeout(_saveTimer);
+  _saveTimer=setTimeout(()=>{
+    try{
+      localStorage.setItem(LS_KEY,JSON.stringify({
+        v:1,savedAt:new Date().toISOString(),
+        students,teachers,gateLog,notifs,NOTES,AUDIT,SUMMONS,complaints,HOMEWORK,announcements,
+        nextId,nextCard
+      }));
+    }catch(e){}
+  },400);
+}
+function loadState(){
+  let raw=null;try{raw=localStorage.getItem(LS_KEY);}catch(e){return false;}
+  if(!raw)return false;
+  try{
+    const d=JSON.parse(raw);
+    if(!d||d.v!==1||!Array.isArray(d.students)||!d.students.length)return false;
+    students=d.students;
+    if(d.teachers)teachers=d.teachers;
+    if(d.gateLog)gateLog=d.gateLog;
+    if(d.notifs)notifs=d.notifs;
+    if(d.NOTES)NOTES=d.NOTES;
+    if(d.AUDIT)AUDIT=d.AUDIT;
+    if(d.SUMMONS)SUMMONS=d.SUMMONS;
+    if(d.complaints)complaints=d.complaints;
+    if(d.HOMEWORK)HOMEWORK=d.HOMEWORK;
+    if(d.announcements)announcements=d.announcements;
+    nextId=Math.max(d.nextId||1,...students.map(s=>s.id+1));
+    if(d.nextCard)nextCard=d.nextCard;
+    return true;
+  }catch(e){return false;}
+}
+function resetDemo(){
+  try{localStorage.removeItem(LS_KEY);}catch(e){}
+  location.reload();
+}
+
 /* تشغيل */
 buildData();
+const _restored=loadState();
 applyRetention();
-initPolicies();
+initPolicies(_restored);
 render();
 clock();setInterval(clock,1000);
 </script>
