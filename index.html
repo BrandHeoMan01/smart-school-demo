@@ -47,6 +47,23 @@ button{font-family:inherit}
 #login .role-op .ic{font-size:20px}
 #login .role-op.sel{border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
 .rolechip{background:var(--primary-soft);color:var(--primary);padding:8px 12px;border-radius:20px;font-size:12px;font-weight:700}
+/* مؤشّر حالة المزامنة — يقول للمستخدم بصدق أين بياناته */
+.syncchip{padding:8px 12px;border-radius:20px;font-size:12px;font-weight:700;border:1px solid transparent;cursor:default;white-space:nowrap}
+.syncchip.ok{background:rgba(52,180,94,.14);color:#2c8a4c;border-color:rgba(52,180,94,.3)}
+.syncchip.pend{background:rgba(247,148,30,.15);color:#a8620a;border-color:rgba(247,148,30,.35)}
+.syncchip.off{background:rgba(220,60,60,.13);color:#b02a2a;border-color:rgba(220,60,60,.3)}
+.syncchip.local{background:var(--surface-2);color:var(--muted);border-color:var(--border)}
+html[data-theme="dark"] .syncchip.ok{color:#5fd18a}
+html[data-theme="dark"] .syncchip.pend{color:#f0b56a}
+html[data-theme="dark"] .syncchip.off{color:#f08a8a}
+/* شاشة الدخول: الحسابات التجريبية */
+#login .demoacc{margin-top:12px;font-size:11.5px;text-align:right}
+#login .demoacc summary{cursor:pointer;color:var(--muted);text-align:center;list-style:none;padding:6px;border:1px dashed var(--border);border-radius:9px}
+#login .demoacc summary::-webkit-details-marker{display:none}
+#login .demoacc table{width:100%;margin-top:8px;font-size:11px;border-collapse:collapse}
+#login .demoacc td{padding:4px 6px;border-bottom:1px solid var(--border)}
+#login .demoacc .code{font-family:ui-monospace,monospace;background:var(--surface-2);padding:1px 5px;border-radius:5px}
+#login .err2{color:var(--absent);font-size:12px;margin-top:8px;min-height:16px;font-weight:600}
 
 /* ===== Layout ===== */
 .sidebar{position:fixed;inset-inline-start:0;top:0;bottom:0;width:250px;background:linear-gradient(180deg,var(--brand1),var(--brand2));color:#fff;padding:20px 12px;overflow-y:auto;z-index:20}
@@ -239,13 +256,17 @@ html[data-theme="dark"] .tt .s1,html[data-theme="dark"] .tt .s2,html[data-theme=
     <svg class="emblem" viewBox="0 0 72 72" width="64" height="64" style="display:block;margin:0 auto 10px"><use href="#emblemG"/></svg>
     <h1 class="word" style="font-size:30px">EDUVIA</h1>
     <p>منظومة إدارة التعليم الذكي</p>
-    <label>اختر الدور</label>
-    <div class="roles" id="rolePicker"></div>
-    <label>كلمة المرور</label>
-    <input id="p" type="password" value="1234">
-    <button class="enter" onclick="doLogin()">دخول</button>
-    <div id="loginErr" style="color:var(--absent);font-size:12px;margin-top:8px"></div>
-    <div class="hint">نسخة تجريبية · كلمة السر للجميع: <b>1234</b> (لكل دور كلمته الخاصة في النسخة الحقيقية)</div>
+    <label for="loginId">رقم البطاقة أو اسم المستخدم</label>
+    <input id="loginId" type="text" autocomplete="username" placeholder="RF-0001" aria-label="رقم البطاقة أو اسم المستخدم">
+    <label for="p">الرمز السرّي</label>
+    <input id="p" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••••" aria-label="الرمز السرّي">
+    <button class="enter" id="loginBtn" onclick="doLogin()">دخول</button>
+    <div id="loginErr" class="err2"></div>
+    <div class="hint" id="loginMode"></div>
+    <details class="demoacc">
+      <summary>حسابات التجربة — اضغطي للعرض</summary>
+      <table id="demoAccTable"></table>
+    </details>
   </div>
 </div>
 
@@ -349,6 +370,7 @@ html[data-theme="dark"] .tt .s1,html[data-theme="dark"] .tt .s2,html[data-theme=
     </div>
     <div class="top-actions">
       <span class="rolechip" id="roleChip">👑 المدير</span>
+      <span class="syncchip local" id="syncChip">وضع محلي</span>
       <span class="trial" id="trial">تجربة مجانية · 15 يومًا</span>
       <span class="badge"><span class="live-dot"></span> النظام يعمل</span>
       <button class="icon-btn" onclick="showPage('notifications')" title="الإشعارات">🔔<span class="dot hidden" id="bell">0</span></button>
@@ -1112,34 +1134,77 @@ const ROLES={
   student:{label:"التلميذ",ic:"🎒",pages:["shome","sgrades","sattendance","stimetable","swork","snotes","ssummons","sannounce","complaints"]}
 };
 const ALL_PAGES=["dashboard","students","classes","teachers","cards","attendance","gate","grades","timetable","thub","calendar","parents","announcements","cinbox","summons","notifications","stats","reports","settings"];
-let selectedRole="director", currentRole="director";
-function renderRolePicker(){
-  document.getElementById("rolePicker").innerHTML=Object.keys(ROLES).map(k=>
-    `<div class="role-op ${k===selectedRole?'sel':''}" onclick="selectRole('${k}')"><span class="ic">${ROLES[k].ic}</span>${ROLES[k].label}</div>`).join("");
+let currentRole="director";
+let CURRENT_USER=null;   /* مَن سجّل الدخول فعلًا — عليه يُبنى سجلّ التدقيق */
+
+/* أُزيل اختيار الدور الحرّ: الدور يأتي من **الحساب** لا من قائمة منسدلة. */
+function renderRolePicker(){ renderDemoAccounts(); }
+
+function renderDemoAccounts(){
+  const el=document.getElementById("demoAccTable"); if(!el) return;
+  /* بطاقات التلاميذ **مولَّدة** (RF-00xxxx) لا مكتوبة يدويًا — فنقرأها من
+     البيانات نفسها. كتابتها ثابتة كان يُعلن رقمًا لا يعمل. */
+  const s0=students[0], s1=students[1];
+  const first=n=>n?String(n).split(" ")[0]:null;
+  const rows=[
+    ["مديرة المؤسسة","director","333333"],
+    ["الناظر","supervisor","444444"],
+    ["الأمانة","reception","555555"],
+    ["معلّمة","RF-T001","222222"],
+    ["المفتّش","inspector","666666"],
+    ["الوصاية","authority","777777"],
+    [s0?("تلميذة — "+first(s0.name)):"تلميذة", s0?s0.card:"—", DEMO_PIN_STUDENT],
+    [s1?("تلميذة — "+first(s1.name)):"تلميذة", s1?s1.card:"—", DEMO_PIN_STUDENT]
+  ];
+  el.innerHTML="<tbody>"+rows.map(([lab,id,pin])=>
+    `<tr><td>${esc(lab)}</td><td><span class="code">${esc(id)}</span></td><td><span class="code">${esc(pin)}</span></td></tr>`).join("")+"</tbody>";
 }
-function selectRole(k){selectedRole=k;renderRolePicker();}
+
 function applyRole(k){
-  currentRole=k; const r=ROLES[k];
+  currentRole=k; const r=ROLES[k]||ROLES.student;
   const allowed=(r.pages==="ALL")?ALL_PAGES:r.pages;
   document.querySelectorAll("#nav button[data-page]").forEach(b=>{b.style.display=allowed.includes(b.dataset.page)?"":"none";});
   document.querySelectorAll("#nav .navgroup").forEach(g=>{g.style.display=[...g.querySelectorAll("button[data-page]")].some(b=>b.style.display!=="none")?"":"none";});
-  document.getElementById("roleChip").textContent=r.ic+" "+r.label;
-  if(k==="student"){meStudent=students[0];renderStudentWing();}
-  if(k==="inspector"){renderInspectorWing();}
-  if(k==="authority"){renderObservatory();}
+  const chip=document.getElementById("roleChip");
+  chip.textContent=r.ic+" "+((CURRENT_USER&&CURRENT_USER.name)?CURRENT_USER.name:r.label);
+  if(k==="student"){ if(!meStudent) meStudent=students[0]; renderStudentWing(); }
+  if(k==="inspector"){ renderInspectorWing(); }
+  if(k==="authority"){ renderObservatory(); }
   showPage(allowed[0]);
 }
-function doLogin(){
-  const pw=document.getElementById("p").value;
-  const err=document.getElementById("loginErr");
-  if(pw!=="1234"){err.textContent="كلمة السر غير صحيحة (التجريبية: 1234).";return;}
+
+async function doLogin(){
+  const err=document.getElementById("loginErr"), btn=document.getElementById("loginBtn");
+  const idEl=document.getElementById("loginId"), pinEl=document.getElementById("p");
   err.textContent="";
-  document.getElementById("login").style.display="none";
-  applyRole(selectedRole);
+  if(btn){btn.disabled=true;btn.textContent="جارٍ التحقّق…";}
+  try{
+    const r=await eduviaLogin(idEl.value, pinEl.value);
+    if(!r.ok){ err.textContent=r.error; return; }
+    CURRENT_USER={loginId:idEl.value.trim(), name:r.name, role:r.role};
+    meStudent = (r.role==="student") ? (students.find(s=>s.id===r.studentId)||students[0]) : null;
+    document.getElementById("login").style.display="none";
+    pinEl.value="";
+    applyRole(r.role);
+    audit("تسجيل دخول", r.name, SYNC.mode==="remote"?"عبر الخادم":"وضع تجريبي محلي");
+  }catch(e){
+    err.textContent="تعذّر إتمام الدخول. حاولي مرّة أخرى.";
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent="دخول";}
+  }
 }
-function logout(){document.getElementById("login").style.display="flex";document.getElementById("p").value="1234";}
+
+function logout(){
+  if(SYNC.client){ try{SYNC.client.auth.signOut();}catch(e){} }
+  CURRENT_USER=null; meStudent=null;
+  document.getElementById("login").style.display="flex";
+  document.getElementById("p").value="";
+}
 document.getElementById("p").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
-renderRolePicker();
+document.getElementById("loginId").addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("p").focus();});
+/* لا نُنادي renderDemoAccounts() هنا: ثوابت المزامنة (DEMO_PIN_STUDENT)
+   تُعرَّف لاحقًا في الملفّ، والنداء في هذا الموضع يقع في منطقة الحظر الزمني.
+   النداء في كتلة الإقلاع أسفل الملفّ. */
 
 /* ================= الوحدات الأكاديمية والإدارية ================= */
 function assignAcademics(s){
@@ -1502,8 +1567,12 @@ let AUDIT=[
   {ts:"2026-09-15T08:12:00",actor:"المدير",role:"director",action:"عرض كشف النقاط",target:"التلميذة 1",detail:"الفصل الأول"}
 ];
 function audit(action,target,detail){
-  AUDIT.unshift({ts:new Date().toISOString().slice(0,19),actor:(ROLES[currentRole]||{label:currentRole}).label,role:currentRole,action,target:target||"—",detail:detail||""});
+  const who=CURRENT_USER||{name:(ROLES[currentRole]||{label:currentRole}).label,role:currentRole};
+  AUDIT.unshift({ts:new Date().toISOString().slice(0,19),actor:who.name||"—",role:who.role||currentRole,action,target:target||"—",detail:detail||""});
   if(AUDIT.length>500)AUDIT.length=500;
+  /* الفاعل صار **حسابًا حقيقيًا** لا دورًا مُختارًا — وهذا ما يجعل الأثر ذا معنى.
+     وكل أثر يذهب إلى طابور المزامنة ليصل الخادم عند عودة الشبكة. */
+  enqueue("audit_log",{action,target:target||null,detail:detail||null});
 }
 function renderAudit(){
   const el=document.getElementById("auditList");if(!el)return;
@@ -1835,8 +1904,199 @@ function printNationalReport(){
   document.body.classList.add("printing");window.print();setTimeout(()=>document.body.classList.remove("printing"),400);
 }
 
+/* ===== EDUVIA — الخادم والمزامنة والمصادقة =====
+   أُضيف هذا البلوك بعد قرار إدخال الخادم (Supabase / Postgres + RLS).
+   المخطّط والسياسات في مجلّد sql/ — مُختبَرة على PostgreSQL حقيقي (tests/rls.test.js).
+
+   مبدآن حاكمان، لا يُنقَضان:
+     ① المنصّة تعمل كاملةً بلا خادم (وضع محلي). لا تتوقّف أبدًا ولا تنتظر شبكة.
+     ② كل تغيير يُسجَّل محليًا **أولًا**، ثم يُدرَج في طابور يُرسَل عند توفّر الشبكة.
+        هذا هو الدرس الفنلدي 3.4: «موبايل أولًا، محتمِل للانقطاع» — لا العكس.
+   ⇒ إدخال الخادم **طبقة إضافية**، لا بديل عن العمل دون اتصال. */
+
+const EDUVIA_CONFIG = {
+  /* اتركهما فارغين ⇒ وضع محلي كامل.  املأهما ⇒ مزامنة حقيقية.
+     راجِع SUPABASE-SETUP.md (الخطوة ٣) — المفتاح العام anon آمن للنشر
+     **بشرط** أن تكون سياسات RLS في sql/002 مُطبَّقة. وهذا هو سبب وجودها. */
+  supabaseUrl:     "",
+  supabaseAnonKey: ""
+};
+
+const SYNC = {
+  mode: (EDUVIA_CONFIG.supabaseUrl && EDUVIA_CONFIG.supabaseAnonKey) ? "remote" : "local",
+  online: (typeof navigator!=="undefined" && "onLine" in navigator) ? navigator.onLine : true,
+  client: null,
+  lastSync: null,
+  lastError: null,
+  loading: false
+};
+
+/* ---------------------------------------------------------------- الطابور
+   كل عنصر: {clientId, table, row, ts, tries}. الخادم يُزيل التكرار عبر
+   الفهرس الفريد على client_id — فإعادة الإرسال بعد انقطاع آمنة، وهذا
+   **سبب وجود client_id في المخطّط** لا زخرفة. */
+const QUEUE_KEY="eduvia-queue-v1", QUEUE_MAX=2000;
+function loadQueue(){
+  try{ const r=localStorage.getItem(QUEUE_KEY); const a=r?JSON.parse(r):[];
+       return Array.isArray(a)?a:[]; }catch(e){ return []; }
+}
+let QUEUE=loadQueue();
+function saveQueue(){ try{ localStorage.setItem(QUEUE_KEY,JSON.stringify(QUEUE.slice(-QUEUE_MAX))); }catch(e){} }
+const newClientId=()=>"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+
+function enqueue(table,row){
+  if(!table||!row) return null;
+  const item={clientId:newClientId(),table,row:Object.assign({client_id:null},row),ts:new Date().toISOString(),tries:0};
+  item.row.client_id=item.clientId;                 /* الخادم يستعمله لمنع الازدواج */
+  QUEUE.push(item); saveQueue(); renderSyncChip();
+  if(SYNC.mode==="remote" && SYNC.online) scheduleFlush(800);
+  return item;
+}
+
+/* ---------------------------------------------------------------- الإرسال */
+let _flushing=false, _flushTimer=null;
+function scheduleFlush(delay){
+  clearTimeout(_flushTimer);
+  _flushTimer=setTimeout(flushQueue, delay==null?(QUEUE.length?1500:5000):delay);
+}
+
+async function ensureClient(){
+  if(SYNC.client) return SYNC.client;
+  if(SYNC.mode!=="remote" || SYNC.loading) return null;
+  SYNC.loading=true;
+  try{
+    if(!window.supabase){
+      await new Promise((res,rej)=>{
+        const s=document.createElement("script");
+        s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
+        s.onload=res; s.onerror=()=>rej(new Error("تعذّر تحميل مكتبة Supabase"));
+        document.head.appendChild(s);
+      });
+    }
+    SYNC.client=window.supabase.createClient(EDUVIA_CONFIG.supabaseUrl,EDUVIA_CONFIG.supabaseAnonKey);
+    return SYNC.client;
+  }catch(e){
+    SYNC.lastError=String(e.message||e); return null;
+  }finally{ SYNC.loading=false; }
+}
+
+async function flushQueue(){
+  if(_flushing || SYNC.mode!=="remote" || !SYNC.online || !QUEUE.length) return;
+  const client=await ensureClient(); if(!client) return;
+  _flushing=true;
+  try{
+    while(QUEUE.length){
+      const it=QUEUE[0];
+      const {error}=await client.from(it.table).upsert(it.row,{onConflict:"client_id"});
+      if(error){
+        /* 23505 = ازدواج ⇒ وصل سابقًا فعلًا. هذا نجاح لا فشل. */
+        if(error.code==="23505" || /duplicate|already exists/i.test(error.message||"")){
+          QUEUE.shift(); saveQueue(); continue;
+        }
+        throw error;
+      }
+      QUEUE.shift(); saveQueue(); SYNC.lastSync=new Date(); SYNC.lastError=null;
+    }
+  }catch(e){
+    const it=QUEUE[0];
+    if(it){ it.tries=(it.tries||0)+1; it.lastError=String(e.message||e); SYNC.lastError=it.lastError; saveQueue(); }
+  }finally{ _flushing=false; renderSyncChip(); }
+}
+
+/* ---------------------------------------------------------------- المؤشّر */
+function renderSyncChip(){
+  const el=document.getElementById("syncChip"); if(!el) return;
+  const n=QUEUE.length; let txt,cls,tip;
+  if(SYNC.mode==="local"){
+    txt="وضع محلي"; cls="local";
+    tip="لم يُوصَل خادم بعد. البيانات محفوظة في هذا الجهاز وحده — راجِع SUPABASE-SETUP.md للتوصيل.";
+  }else if(!SYNC.online){
+    txt=n?("بانتظار الشبكة ("+n+")"):"بلا شبكة"; cls="off";
+    tip="ستُرسل التغييرات تلقائيًا فور عودة الشبكة. لا شيء يضيع.";
+  }else if(n){
+    txt="جارٍ المزامنة ("+n+")"; cls="pend";
+    tip=n+" تغييرًا في الطابور بانتظار الإرسال.";
+  }else{
+    txt="متزامن ✓"; cls="ok";
+    tip=SYNC.lastSync?("آخر مزامنة: "+SYNC.lastSync.toLocaleTimeString("ar")):"كل التغييرات وصلت الخادم.";
+  }
+  el.textContent=txt; el.className="syncchip "+cls; el.title=tip;
+}
+
+/* ---------------------------------------------------------------- المصادقة */
+const sha256=async s=>{
+  const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));
+  return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
+};
+/* "RF-0001" → "rf-0001@eduvia.local"
+   بريد اصطناعي لا يُرسَل إليه شيء — لكنه يسمح لـSupabase Auth أن يعمل
+   بأصالته بلا مزوّد بريد، وبلا حسابات بريد لأطفال. */
+const toEmail=loginId=>String(loginId).trim().toLowerCase().replace(/[^a-z0-9._-]/g,"-")+"@eduvia.local";
+
+let ACCOUNTS=null;
+const DEMO_PIN_STUDENT="111111";
+const DEMO_STAFF=[
+  {loginId:"director",   role:"director",   name:"المديرة زهية",         pin:"333333"},
+  {loginId:"supervisor", role:"supervisor", name:"الناظر كريم",           pin:"444444"},
+  {loginId:"reception",  role:"reception",  name:"الأمانة",              pin:"555555"},
+  {loginId:"RF-T001",    role:"teacher",    name:"الأستاذة فاطمة الزهراء", pin:"222222"},
+  {loginId:"inspector",  role:"inspector",  name:"المفتّش سعيد",          pin:"666666"},
+  {loginId:"authority",  role:"authority",  name:"مديرية التربية",        pin:"777777"}
+];
+
+/* في الوضع المحلي نبني مخزن حسابات حقيقيًا: الرمز السرّي يُخزَّن **مُجزَّأً**
+   (SHA-256) لا نصًّا صريحًا. ليست حماية كاملة — لكنها ليست `1234` في نصّ صريح.
+   في الوضع البعيد تُتخطّى كليًا: Supabase Auth هو المرجع. */
+async function buildAccounts(){
+  if(ACCOUNTS) return ACCOUNTS;
+  const rows=DEMO_STAFF.slice();
+  for(const s of students) rows.push({loginId:s.card,role:"student",name:s.name,pin:DEMO_PIN_STUDENT,studentId:s.id});
+  const out=[];
+  for(const r of rows){
+    out.push({loginId:r.loginId,role:r.role,name:r.name,studentId:r.studentId,
+              hash:await sha256(r.loginId.toLowerCase()+"|"+r.pin)});
+  }
+  ACCOUNTS=out; return out;
+}
+
+async function eduviaLogin(loginId,pin){
+  loginId=String(loginId||"").trim(); pin=String(pin||"").trim();
+  if(!loginId||!pin) return {ok:false,error:"أدخلي رقم البطاقة والرمز السرّي."};
+
+  if(SYNC.mode==="remote"){
+    const client=await ensureClient();
+    if(!client) return {ok:false,error:"تعذّر الاتصال بالخادم. تحقّقي من الشبكة."};
+    const {data,error}=await client.auth.signInWithPassword({email:toEmail(loginId),password:pin});
+    if(error) return {ok:false,error:"رقم البطاقة أو الرمز السرّي غير صحيح."};
+    const {data:prof,error:pe}=await client.from("profiles")
+      .select("role,display_name,student_id,school_id").eq("id",data.user.id).single();
+    if(pe||!prof) return {ok:false,error:"لا ملفّ مرتبط بهذا الحساب. راجعي الإدارة."};
+    const {data:school}=await client.from("schools").select("name").eq("id",prof.school_id).single();
+    if(school&&school.name) CURRENT_SCHOOL=school.name;
+    scheduleFlush(200);                              /* أعمال جرت قبل الدخول تُرسَل الآن */
+    return {ok:true,role:prof.role,name:prof.display_name,studentId:prof.student_id,remote:true};
+  }
+
+  const accs=await buildAccounts();
+  const h=await sha256(loginId.toLowerCase()+"|"+pin);
+  const acc=accs.find(a=>a.loginId.toLowerCase()===loginId.toLowerCase()&&a.hash===h);
+  if(!acc) return {ok:false,error:"رقم البطاقة أو الرمز السرّي غير صحيح."};
+  return {ok:true,role:acc.role,name:acc.name,studentId:acc.studentId,remote:false};
+}
+
+let CURRENT_SCHOOL="ابتدائية النور";
+
+/* ---------------------------------------------------------------- الربط
+   مؤشّر الحالة في الترويسة + إعادة المحاولة عند عودة الشبكة. */
+window.addEventListener("online", ()=>{ SYNC.online=true;  renderSyncChip(); scheduleFlush(400); });
+window.addEventListener("offline",()=>{ SYNC.online=false; renderSyncChip(); });
+setInterval(()=>{ if(QUEUE.length) scheduleFlush(0); }, 30000);
+window.addEventListener("focus",()=>{ if(QUEUE.length) scheduleFlush(0); });
+
+
 /* ===== الثبات — تبقى البيانات بعد إعادة تحميل الصفحة (localStorage) =====
-   في النسخة الحقيقية تُستبدَل هذه الطبقة بمزامنة مع الخادم. */
+   هذه الطبقة تبقى كما هي: هي **المخزن المحلي** الذي يضمن المبدأ ①.
+   المزامنة مع الخادم (أعلاه) تُبنى فوقها لا مكانها — فالمنصّة تعمل بلا شبكة. */
 const LS_KEY="eduvia-smart-school-v1";
 let _saveTimer=null;
 function saveState(){
@@ -1887,6 +2147,23 @@ applyRetention();
 initPolicies(_restored);
 render();
 clock();setInterval(clock,1000);
+
+/* مؤشّر المزامنة + شرح وضع التشغيل على شاشة الدخول */
+renderSyncChip();
+renderDemoAccounts();
+(function setLoginMode(){
+  const el=document.getElementById("loginMode"); if(!el) return;
+  el.innerHTML = (SYNC.mode==="remote")
+    ? "متّصل بالخادم · ادخلي برقم بطاقتك أو اسم المستخدم."
+    : "وضع تجريبي محلي · البيانات في هذا الجهاز وحده (لا خادم). حسابات التجربة أدناه.";
+})();
+if(SYNC.mode==="remote" && QUEUE.length) scheduleFlush(1500);
+
+/* عامل الخدمة — يجعل المنصّة **تُفتح** بلا شبكة، لا تحفظ بياناتها فقط.
+   لم يكن مُسجَّلًا قبل اليوم: البيانات كانت تبقى، لكن الصفحة لا تُفتح بلا شبكة. */
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+}
 </script>
 </body>
 </html>
