@@ -1,4 +1,5 @@
 [build]
   publish = "."
-  # استثناء الملفات الداخلية من الموقع المنشور (تبقى في المستودع)
-  command = "rm -f ARCHITECTURE.md README-PWA.md serve.js"
+  # استثناء الملفّات الداخلية من الموقع المنشور (تبقى في المستودع).
+  # sql/ و tests/ و tools/ وثائق وصيانة — لا تخصّ الزائر، ولا معنى لنشرها.
+  command = "rm -f ARCHITECTURE.md README-PWA.md SUPABASE-SETUP.md serve.js && rm -rf sql tests tools"

@@ -1,0 +1,266 @@
+#!/usr/bin/env node
+/* ============================================================================
+ *  EDUVIA — اختبار طبقة المزامنة والمصادقة
+ *  الملف: tests/sync.test.js
+ *
+ *  يستخرج بلوك «الخادم والمزامنة والمصادقة» من index.html ويشغّله في بيئة
+ *  معزولة (vm) مع بدائل للمتصفّح — ثم يتحقّق من:
+ *    · الطابور: الإضافة، الثبات، سقف الحجم، مفتاح منع التكرار
+ *    · الإرسال: إزالة المكرر (23505) بدل الفشل، والاحتفاظ عند الفشل الحقيقي
+ *    · المؤشّر: النصّ الصحيح لكل حالة (محلي / بلا شبكة / بانتظار / متزامن)
+ *    · تحويل البطاقة إلى بريد
+ *    · المصادقة المحلية: رمز صحيح ينجح، خاطئ يُرفض، ومعرِّف مجهول يُرفض
+ *
+ *  التشغيل:  node tests/sync.test.js        (لا يحتاج أي مكتبة)
+ * ==========================================================================*/
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+const ROOT = path.resolve(__dirname, "..");
+const HTML = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+
+/* ------------------------------------------------------- استخراج البلوك */
+const START = "/* ===== EDUVIA — الخادم والمزامنة والمصادقة =====*/".replace("*/", "");
+const END = "/* ===== الثبات";
+const i0 = HTML.indexOf("/* ===== EDUVIA — الخادم والمزامنة والمصادقة");
+const i1 = HTML.indexOf(END, i0);
+if (i0 < 0 || i1 < 0) {
+  console.error("✖ تعذّر العثور على بلوك المزامنة في index.html — هل تغيّر تعليقه؟");
+  process.exit(2);
+}
+const BLOCK = HTML.slice(i0, i1);
+
+/* ------------------------------------------------------------- الإحصاء */
+let pass = 0;
+const failures = [];
+const ok = (l) => { pass++; console.log(`  \x1b[32m✓\x1b[0m ${l}`); };
+const bad = (l, d) => { failures.push(l); console.log(`  \x1b[31m✗\x1b[0m ${l}${d ? `\n      ↳ ${d}` : ""}`); };
+function eq(a, e, l) {
+  const A = JSON.stringify(a), E = JSON.stringify(e);
+  if (A === E) ok(l); else bad(l, `المتوقّع ${E} · الواقع ${A}`);
+}
+function truthy(v, l) { v ? ok(l) : bad(l, `القيمة ${JSON.stringify(v)}`); }
+
+/* ------------------------------------------------------- بيئة المتصفّح */
+function makeSandbox({ students = [], online = true } = {}) {
+  const store = new Map();
+  const el = () => ({ textContent: "", className: "", title: "", innerHTML: "", style: {} });
+
+  const sandbox = {
+    console,
+    TextEncoder,
+    crypto: globalThis.crypto,
+    setTimeout: () => 0,          // لا نريد مؤقّتات حقيقية تُبقي العملية حيّة
+    clearTimeout: () => {},
+    setInterval: () => 0,
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    },
+    document: { getElementById: () => el(), createElement: () => el(), head: { appendChild() {} } },
+    navigator: { onLine: online },
+    students,
+  };
+  sandbox.window = {
+    addEventListener: () => {},
+    supabase: null,
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(
+    BLOCK +
+    `\n;globalThis.__T={SYNC,QUEUE,enqueue,flushQueue,renderSyncChip,toEmail,eduviaLogin,` +
+    `buildAccounts,sha256,loadQueue,saveQueue,DEMO_STAFF,DEMO_PIN_STUDENT,newClientId};`,
+    sandbox,
+    { filename: "eduvia-sync.js" }
+  );
+  return { T: sandbox.__T, sandbox, store };
+}
+
+/* بيانات تلاميذ وهمية للمصادقة */
+const STUDENTS = [
+  { id: 1, name: "مريم بن علي", card: "RF-0001", cls: "1أ" },
+  { id: 2, name: "آية بن ساسي", card: "RF-0002", cls: "1أ" },
+  { id: 3, name: "نور الهدى العايب", card: "RF-0003", cls: "1ب" },
+];
+
+/* =========================================================== الاختبارات */
+async function main() {
+  console.log("\n\x1b[1mEDUVIA — اختبار المزامنة والمصادقة\x1b[0m\n");
+
+  /* ------------------------------------------------ ١. تحويل البطاقة */
+  console.log("▸ تحويل مُعرِّف الدخول إلى بريد");
+  {
+    const { T } = makeSandbox();
+    eq(T.toEmail("RF-0001"), "rf-0001@eduvia.local", "بطاقة RF-0001 ← rf-0001@eduvia.local");
+    eq(T.toEmail("DIRECTOR"), "director@eduvia.local", "يُصغَّر الحرف تلقائيًا");
+    eq(T.toEmail("  RF-0002  "), "rf-0002@eduvia.local", "تُقلَّم الفراغات الطرفية");
+    eq(T.toEmail("RF T001"), "rf-t001@eduvia.local", "الرموز غير الآمنة تُستبدَل");
+  }
+
+  /* ------------------------------------------------ ٢. الطابور */
+  console.log("\n▸ الطابور المحلي");
+  {
+    const { T, store } = makeSandbox();
+    eq(T.QUEUE.length, 0, "يبدأ الطابور فارغًا");
+
+    const a = T.enqueue("audit_log", { action: "عرض", target: "تلميذة" });
+    const b = T.enqueue("behaviour_notes", { body: "ملاحظة" });
+    eq(T.QUEUE.length, 2, "الإدراج يزيد الطابور");
+    truthy(a.clientId && a.clientId !== b.clientId, "لكل عملية clientId فريد (منع الازدواج)");
+    eq(a.row.client_id, a.clientId, "client_id مكتوب داخل الصفّ نفسه (يقرأه الفهرس الفريد)");
+    truthy(store.has("eduvia-queue-v1"), "الطابور محفوظ في localStorage (يبقى بعد إعادة التحميل)");
+  }
+  {
+    const { T } = makeSandbox();
+    T.enqueue("audit_log", { action: "x" });
+    const restored = T.loadQueue();
+    eq(restored.length, 1, "الطابور يُستعاد بعد إعادة التحميل");
+    eq(restored[0].table, "audit_log", "الجدول محفوظ");
+    eq(restored[0].tries, 0, "عدّاد المحاولات يبدأ من صفر");
+  }
+  {
+    const { T } = makeSandbox();
+    eq(T.enqueue("audit_log", null), null, "صفّ فارغ لا يُدرَج");
+    eq(T.QUEUE.length, 0, "الطابور يبقى فارغًا");
+  }
+
+  /* ------------------------------------------------ ٣. الإرسال */
+  console.log("\n▸ الإرسال وإزالة التكرار");
+  {
+    const { T } = makeSandbox();
+    let calls = 0;
+    T.SYNC.mode = "remote"; T.SYNC.online = true;
+    T.SYNC.client = { from: () => ({ upsert: async () => { calls++; return { error: null }; } }) };
+
+    T.enqueue("audit_log", { action: "أ" });
+    T.enqueue("audit_log", { action: "ب" });
+    T.enqueue("audit_log", { action: "ج" });
+    await T.flushQueue();
+    eq(calls, 3, "أُرسلت العمليات الثلاث");
+    eq(T.QUEUE.length, 0, "الطابور صار فارغًا بعد النجاح");
+    truthy(T.SYNC.lastSync, "وقت آخر مزامنة مُسجَّل");
+  }
+  {
+    /* المفتاح: ازدواج على الخادم = نجاح لا فشل (وصل سابقًا ثم انقطع الردّ) */
+    const { T } = makeSandbox();
+    T.SYNC.mode = "remote"; T.SYNC.online = true;
+    T.SYNC.client = { from: () => ({ upsert: async () => ({ error: { code: "23505", message: "duplicate key" } }) }) };
+    T.enqueue("audit_log", { action: "أ" });
+    await T.flushQueue();
+    eq(T.QUEUE.length, 0, "الازدواج 23505 يُعالَج كنجاح (لا تكرار ولا تعليق للطابور)");
+  }
+  {
+    /* فشل حقيقي ⇒ يبقى في الطابور وتزداد المحاولات */
+    const { T } = makeSandbox();
+    T.SYNC.mode = "remote"; T.SYNC.online = true;
+    T.SYNC.client = { from: () => ({ upsert: async () => ({ error: { code: "42P01", message: "relation does not exist" } }) }) };
+    T.enqueue("audit_log", { action: "أ" });
+    await T.flushQueue();
+    eq(T.QUEUE.length, 1, "الفشل الحقيقي يُبقي العملية في الطابور (لا ضياع)");
+    eq(T.QUEUE[0].tries, 1, "عدّاد المحاولات يزداد");
+    truthy(T.SYNC.lastError, "الخطأ مُسجَّل للمراجعة");
+  }
+  {
+    /* بلا شبكة ⇒ لا محاولة إرسال إطلاقًا */
+    const { T } = makeSandbox();
+    let calls = 0;
+    T.SYNC.mode = "remote"; T.SYNC.online = false;
+    T.SYNC.client = { from: () => ({ upsert: async () => { calls++; return { error: null }; } }) };
+    T.enqueue("audit_log", { action: "أ" });
+    await T.flushQueue();
+    eq(calls, 0, "بلا شبكة: لا محاولة إرسال");
+    eq(T.QUEUE.length, 1, "العملية محفوظة بانتظار الشبكة");
+  }
+  {
+    /* الوضع المحلي ⇒ لا إرسال أبدًا، لكن لا ضياع أيضًا */
+    const { T } = makeSandbox();
+    let calls = 0;
+    T.SYNC.client = { from: () => ({ upsert: async () => { calls++; return { error: null }; } }) };
+    T.enqueue("audit_log", { action: "أ" });
+    await T.flushQueue();
+    eq(calls, 0, "الوضع المحلي: لا يحاول الإرسال");
+    eq(T.QUEUE.length, 1, "التغيير محفوظ محليًا في كل الأحوال");
+  }
+
+  /* ------------------------------------------------ ٤. المؤشّر */
+  console.log("\n▸ مؤشّر الحالة (يقول الحقيقة للمستخدم)");
+  {
+    const { T, sandbox } = makeSandbox();
+    const chip = { textContent: "", className: "", title: "" };
+    sandbox.document.getElementById = (id) => (id === "syncChip" ? chip : { style: {} });
+
+    T.renderSyncChip();
+    eq(chip.textContent, "وضع محلي", "بلا خادم ⇒ «وضع محلي»");
+    eq(chip.className, "syncchip local", "الصنف صحيح");
+
+    T.SYNC.mode = "remote"; T.SYNC.online = false; T.renderSyncChip();
+    eq(chip.textContent, "بلا شبكة", "بلا شبكة وطابور فارغ");
+
+    T.enqueue("audit_log", { action: "أ" }); T.renderSyncChip();
+    eq(chip.textContent, "بانتظار الشبكة (1)", "بلا شبكة مع طابور: يُظهر العدد");
+
+    T.SYNC.online = true; T.renderSyncChip();
+    eq(chip.textContent, "جارٍ المزامنة (1)", "على الشبكة مع طابور معلّق");
+
+    T.QUEUE.length = 0; T.SYNC.lastSync = new Date(); T.renderSyncChip();
+    eq(chip.textContent, "متزامن ✓", "طابور فارغ ⇒ متزامن");
+  }
+
+  /* ------------------------------------------------ ٥. المصادقة */
+  console.log("\n▸ المصادقة المحلية (بطاقة + رمز سرّي)");
+  {
+    const { T } = makeSandbox({ students: STUDENTS });
+
+    const h1 = await T.sha256("rf-0001|111111");
+    const h2 = await T.sha256("rf-0001|111111");
+    eq(h1, h2, "التجزئة ثابتة (SHA-256)");
+    eq(h1.length, 64, "طول التجزئة 64 حرفًا");
+    truthy(h1 !== "111111", "الرمز لا يُخزَّن نصًّا صريحًا");
+
+    const accs = await T.buildAccounts();
+    eq(accs.length, 3 + T.DEMO_STAFF.length, "حساب لكل تلميذة + حسابات الطاقم");
+    truthy(accs.every((a) => a.hash && a.hash.length === 64), "كل الحسابات مُجزَّأة");
+    truthy(accs.some((a) => a.loginId === "RF-0001" && a.role === "student"), "بطاقة التلميذة موجودة");
+    truthy(accs.some((a) => a.loginId === "director" && a.role === "director"), "حساب المديرة موجود");
+
+    const good = await T.eduviaLogin("RF-0001", "111111");
+    eq(good.ok, true, "دخول برمز صحيح: ينجح");
+    eq(good.role, "student", "الدور صحيح");
+    eq(good.name, "مريم بن علي", "الاسم من الحساب لا من قائمة");
+    eq(good.studentId, 1, "التلميذة مرتبطة بسجلّها");
+
+    eq((await T.eduviaLogin("RF-0001", "000000")).ok, false, "رمز خاطئ: يُرفض");
+    eq((await T.eduviaLogin("RF-9999", "111111")).ok, false, "بطاقة مجهولة: تُرفض");
+    eq((await T.eduviaLogin("", "111111")).ok, false, "بلا مُعرِّف: يُرفض");
+    eq((await T.eduviaLogin("RF-0001", "")).ok, false, "بلا رمز: يُرفض");
+    eq((await T.eduviaLogin("rf-0001", "111111")).ok, true, "المعرِّف غير حسّاس لحالة الأحرف");
+    eq((await T.eduviaLogin("RF-0002", "111111")).role, "student", "تلميذة أخرى تدخل بحسابها");
+
+    eq((await T.eduviaLogin("director", "333333")).role, "director", "المديرة تدخل برمزها");
+    eq((await T.eduviaLogin("director", "111111")).ok, false,
+       "رمز التلميذة لا يفتح حساب المديرة");
+    eq((await T.eduviaLogin("RF-T001", "222222")).role, "teacher", "المعلّمة تدخل برمزها");
+
+    /* الرمز القديم 1234 يجب ألّا يعمل بأي حال */
+    eq((await T.eduviaLogin("director", "1234")).ok, false, "الرمز القديم 1234 لم يعد يعمل");
+    eq((await T.eduviaLogin("RF-0001", "1234")).ok, false, "1234 لا يفتح حساب تلميذة");
+  }
+
+  /* ------------------------------------------------ الحصيلة */
+  console.log("\n" + "─".repeat(64));
+  if (failures.length === 0) {
+    console.log(`\x1b[32m\x1b[1m✅ نجحت كل الاختبارات — ${pass} تأكيدًا\x1b[0m\n`);
+    process.exit(0);
+  }
+  console.log(`\x1b[31m\x1b[1m❌ ${failures.length} فشل من ${pass + failures.length}\x1b[0m`);
+  failures.forEach((f) => console.log(`   · ${f}`));
+  console.log();
+  process.exit(1);
+}
+
+main().catch((e) => { console.error("\n\x1b[31m✖ خطأ:\x1b[0m", e); process.exit(1); });

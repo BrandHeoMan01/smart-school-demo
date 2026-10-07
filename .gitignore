@@ -1,2 +1,13 @@
 # Local Netlify folder
 .netlify
+
+# تبعيات الاختبار (تُثبَّت عند الحاجة: npm i pg)
+node_modules/
+
+# كشف البطاقات والأرقام السرّية — يولّده tools/provision.mjs
+# ⚠️ يحتوي أسرارًا: لا يُرفع أبدًا
+roster.csv
+
+# مسودّات محلية
+*.tmp
+.tmp-*
