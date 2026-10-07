@@ -1947,10 +1947,13 @@ function printNationalReport(){
 
 const EDUVIA_CONFIG = {
   /* اتركهما فارغين ⇒ وضع محلي كامل.  املأهما ⇒ مزامنة حقيقية.
-     راجِع SUPABASE-SETUP.md (الخطوة ٣) — المفتاح العام anon آمن للنشر
-     **بشرط** أن تكون سياسات RLS في sql/002 مُطبَّقة. وهذا هو سبب وجودها. */
-  supabaseUrl:     "",
-  supabaseAnonKey: ""
+     راجِع SUPABASE-SETUP.md (الخطوة ٣) — المفتاح العام آمن للنشر
+     **بشرط** أن تكون سياسات RLS في sql/002 مُطبَّقة. وهذا هو سبب وجودها.
+
+     ملاحظة: Supabase صار يُصدر المفاتيح الجديدة باسم «publishable»
+     (`sb_publishable_…`) بدل «anon» القديم (`eyJ…`). كلاهما يعمل هنا. */
+  supabaseUrl:     "https://zyzzbdmfiuxnzgyjcgtj.supabase.co",
+  supabaseAnonKey: "sb_publishable_VoxiEoJFCRUHLkAz3lYrsw_gWYdHfg5"
 };
 
 const SYNC = {
@@ -2040,7 +2043,11 @@ async function ensureClient(){
       await new Promise((res,rej)=>{
         const s=document.createElement("script");
         s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
-        s.onload=res; s.onerror=()=>rej(new Error("تعذّر تحميل مكتبة Supabase"));
+        /* مهلة إلزامية: شبكة قد **تتعلّق** لا تفشل. بلا مهلة تبقى شاشة الدخول
+           دوّارةً إلى الأبد بلا رسالة — وذلك أسوأ من رسالة فشل صريحة. */
+        const t=setTimeout(()=>rej(new Error("انتهت المهلة — تحقّقي من الشبكة")),10000);
+        s.onload=()=>{clearTimeout(t);res();};
+        s.onerror=()=>{clearTimeout(t);rej(new Error("تعذّر تحميل مكتبة Supabase"));};
         document.head.appendChild(s);
       });
     }

@@ -19,7 +19,7 @@ create temp table _eduvia_verify (n int generated always as identity, check_name
 do $$
 declare
   v_dir  uuid;  v_tea  uuid;  v_stu  uuid;  v_par  uuid;
-  v_student uuid; v_note uuid; v_note_old uuid;
+  v_student uuid; v_note uuid; v_note_old date;
   v_cnt int; v_rows int;
   v_blocked boolean;
 begin
@@ -43,7 +43,7 @@ begin
   select count(*) into v_cnt
     from pg_tables
    where schemaname='public' and not rowsecurity;
-  insert into _eduvia_verify values (
+  insert into _eduvia_verify (check_name, result) values (
     'RLS مُفعَّل على كل جداول public',
     case when v_cnt = 0 then '✓ نعم (0 جدول مكشوف)' else '✗ ' || v_cnt || ' جدول بلا RLS!' end);
 
@@ -52,7 +52,7 @@ begin
     from pg_policies
    where schemaname='public' and tablename='audit_log'
      and cmd in ('UPDATE','DELETE','ALL');
-  insert into _eduvia_verify values (
+  insert into _eduvia_verify (check_name, result) values (
     'سجلّ التدقيق: لا سياسة تعديل/حذف',
     case when v_cnt = 0 then '✓ لا توجد (إضافة فقط)' else '✗ وُجدت ' || v_cnt || ' سياسة!' end);
 
@@ -65,12 +65,12 @@ begin
       perform set_config('request.jwt.claim.sub', v_stu::text, true);
       execute 'select count(*) from students' into v_cnt;
       reset role;
-      insert into _eduvia_verify values (
+      insert into _eduvia_verify (check_name, result) values (
         'التلميذة ترى سجلّها فقط',
         case when v_cnt = 1 then '✓ صفّ واحد' else '✗ ترى ' || v_cnt || ' صفًّا' end);
     exception when others then
       reset role;
-      insert into _eduvia_verify values ('التلميذة ترى سجلّها فقط', '✗ خطأ: ' || sqlerrm);
+      insert into _eduvia_verify (check_name, result) values ('التلميذة ترى سجلّها فقط', '✗ خطأ: ' || sqlerrm);
     end;
 
     -- (ب) التلميذة لا تستطيع تغيير حالة ملاحظة سلوك
@@ -91,7 +91,7 @@ begin
         reset role;
         v_blocked := true;
       end;
-      insert into _eduvia_verify values (
+      insert into _eduvia_verify (check_name, result) values (
         'التلميذة لا تُلغي ملاحظة على نفسها',
         case when v_blocked then '✓ مرفوض (كما يجب)' else '✗ نجحت — ثغرة خطيرة!' end);
 
@@ -101,13 +101,13 @@ begin
         perform set_config('request.jwt.claim.sub', v_stu::text, true);
         execute format('update behaviour_notes set reply=''اعتراض تجريبي'' where id = %L', v_note);
         reset role;
-        insert into _eduvia_verify values ('التلميذة تستطيع تسجيل اعتراضها', '✓ مسموح (حقّها)');
+        insert into _eduvia_verify (check_name, result) values ('التلميذة تستطيع تسجيل اعتراضها', '✓ مسموح (حقّها)');
       exception when others then
         reset role;
-        insert into _eduvia_verify values ('التلميذة تستطيع تسجيل اعتراضها', '✗ مرفوض: ' || sqlerrm);
+        insert into _eduvia_verify (check_name, result) values ('التلميذة تستطيع تسجيل اعتراضها', '✗ مرفوض: ' || sqlerrm);
       end;
     else
-      insert into _eduvia_verify values ('اختبار الاعتراض', '⚠️ لا ملاحظة حديثة للمحاولة عليها');
+      insert into _eduvia_verify (check_name, result) values ('اختبار الاعتراض', '⚠️ لا ملاحظة حديثة للمحاولة عليها');
     end if;
 
     -- (د) التلميذة لا تكتب نقاطًا
@@ -122,7 +122,7 @@ begin
     exception when others then
       reset role; v_blocked := true;
     end;
-    insert into _eduvia_verify values (
+    insert into _eduvia_verify (check_name, result) values (
       'التلميذة لا تكتب نقاطها',
       case when v_blocked then '✓ مرفوض' else '✗ نجحت — ثغرة!' end);
 
@@ -136,7 +136,7 @@ begin
     exception when others then
       reset role; v_blocked := true;
     end;
-    insert into _eduvia_verify values (
+    insert into _eduvia_verify (check_name, result) values (
       'التلميذة لا تُرقّي نفسها إلى مدير',
       case when v_blocked then '✓ مرفوض (القيد العمودي يعمل)' else '✗ نجحت — تصعيد صلاحيات!' end);
   end if;
@@ -154,7 +154,7 @@ begin
     exception when others then
       reset role; v_blocked := true;
     end;
-    insert into _eduvia_verify values (
+    insert into _eduvia_verify (check_name, result) values (
       'المعلّمة لا تحذف تلميذة',
       case when v_blocked then '✓ لا أثر' else '✗ حذفت فعلًا — ثغرة!' end);
   end if;
@@ -162,19 +162,19 @@ begin
   -- ============================ ⑤ سياسة الاحتفاظ تعمل
   begin
     select public.archive_expired_notes() into v_cnt;
-    insert into _eduvia_verify values ('دالة الأرشفة (١٨٠ يومًا) تعمل', '✓ أُرشف ' || v_cnt || ' ملاحظة');
+    insert into _eduvia_verify (check_name, result) values ('دالة الأرشفة (١٨٠ يومًا) تعمل', '✓ أُرشف ' || v_cnt || ' ملاحظة');
   exception when others then
-    insert into _eduvia_verify values ('دالة الأرشفة (١٨٠ يومًا) تعمل', '✗ خطأ: ' || sqlerrm);
+    insert into _eduvia_verify (check_name, result) values ('دالة الأرشفة (١٨٠ يومًا) تعمل', '✗ خطأ: ' || sqlerrm);
   end;
 
   -- ============================ ⑥ pg_cron مجدول
   begin
     select count(*) into v_cnt from cron.job where jobname = 'eduvia-archive-behaviour';
-    insert into _eduvia_verify values (
+    insert into _eduvia_verify (check_name, result) values (
       'الأرشفة مجدولة تلقائيًا (pg_cron)',
       case when v_cnt > 0 then '✓ مجدولة يوميًا' else '⚠️ غير مجدولة — شغّل الدالة يدويًا دوريًا' end);
   exception when others then
-    insert into _eduvia_verify values ('الأرشفة مجدولة تلقائيًا (pg_cron)', '⚠️ pg_cron غير متوفّر');
+    insert into _eduvia_verify (check_name, result) values ('الأرشفة مجدولة تلقائيًا (pg_cron)', '⚠️ pg_cron غير متوفّر');
   end;
 end $$;
 

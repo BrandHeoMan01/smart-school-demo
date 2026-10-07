@@ -117,10 +117,21 @@ const T = vm.runInContext(`({
   get students(){return students}, get teachers(){return teachers},
   get QUEUE(){return QUEUE}, get SYNC(){return SYNC},
   get CURRENT_USER(){return CURRENT_USER}, set CURRENT_USER(v){CURRENT_USER=v},
+  EDUVIA_CONFIG,
   ROLES, ALL_PAGES, classesSorted, doLogin, logout, renderSyncChip, renderAudit,
   renderInspectorWing, renderObservatory, renderBook, behavBalance, eduviaLogin,
   applyRole, showPage, audit, renderDemoAccounts
 })`, sandbox);
+
+/* الالتقاط قبل الفرض: هكذا نقيس ما اشترقه السكربت فعلًا من إعداداته. */
+const derivedMode = T.SYNC.mode;
+
+/* نُثبّت «محلي» عمدًا. هذا الاختبار يقيس المنصّة **بلا خادم**، ويجب ألّا
+   تتغيّر نتيجته بحسب ما إذا كان index.html موصولًا بتلك اللحظة.
+   (العلّة التي كشفت الحاجة: بعد لصق المفاتيح صار eduviaLogin ينتظر تحميل
+   مكتبة من الشبكة؛ وفي البيئة المعزولة لا مؤقّتات حيّة ⇒ نفدت أحداث Node
+   وخرجت العملية بـ0 بلا أن تُكمل — فأعلن run-all «نجاحًا» كاذبًا.) */
+T.SYNC.mode = "local";
 
 const chk = (label, fn) => { try { fn() ? ok(label) : bad(label); } catch (e) { bad(label, e.message); } };
 
@@ -129,7 +140,8 @@ chk("الأقسام مبنيّة", () => T.classesSorted().length > 0);
 chk("المعلّمون موجودون", () => T.teachers.length > 0);
 chk("الأدوار السبعة معرَّفة", () => Object.keys(T.ROLES).length === 7);
 chk("الطابور أُقلع فارغًا", () => Array.isArray(T.QUEUE) && T.QUEUE.length === 0);
-chk("وضع المزامنة = محلي (بلا مفاتيح)", () => T.SYNC.mode === "local");
+chk("وضع المزامنة مُشتقّ من الإعداد لا مثبَّت", () =>
+  derivedMode === ((T.EDUVIA_CONFIG.supabaseUrl && T.EDUVIA_CONFIG.supabaseAnonKey) ? "remote" : "local"));
 chk("لا مستخدم مسجَّل عند الإقلاع", () => T.CURRENT_USER === null);
 chk("دالة الدخول موجودة", () => typeof T.doLogin === "function");
 chk("دالة الخروج موجودة", () => typeof T.logout === "function");
@@ -202,6 +214,7 @@ console.log("\n▸ سيناريو دخول كامل (بلا خادم)");
   }
 
   console.log("\n" + "─".repeat(64));
+  console.log(`__EDUVIA_SUITE_DONE__ ok=${pass} fail=${failures.length}`);
   if (failures.length === 0) {
     console.log(`\x1b[32m\x1b[1m✅ نجحت كل الاختبارات — ${pass} تأكيدًا\x1b[0m\n`);
     process.exit(0);

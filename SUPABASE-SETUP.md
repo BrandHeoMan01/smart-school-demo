@@ -81,11 +81,23 @@ const EDUVIA_CONFIG = {
 
 الحسابات **لا تُنشأ من المتصفّح** (منعًا لتنصيب أي أحد نفسه مديرًا). تُنشأ من جهازك:
 
+**لا تحتاج تثبيت أي مكتبة** — السكربت يستعمل `fetch` المدمج في Node 18+.
+
+على **Windows / PowerShell** (انسخ الكتلة كاملة واستبدل القيمتين):
+
+```powershell
+cd C:\Users\USER\projects\smart-school-demo
+$env:SUPABASE_URL="https://xxxx.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="eyJhbGci..."   # من Settings ← API ← service_role
+node tools/provision.mjs
+```
+
+على **Linux / macOS**:
+
 ```bash
 cd smart-school-demo
-npm i pg                                  # مرة واحدة فقط
 export SUPABASE_URL="https://xxxx.supabase.co"
-export SUPABASE_SERVICE_ROLE_KEY="eyJhbGci..."   # من Settings ← API ← service_role
+export SUPABASE_SERVICE_ROLE_KEY="eyJhbGci..."
 node tools/provision.mjs
 ```
 
@@ -95,8 +107,6 @@ node tools/provision.mjs
 
 المخرَج: ملفّ **`roster.csv`** فيه كل البطاقات والأرقام — **اطبعه ووزّعه ثم احذفه**.
 `roster.csv` مُستثنى من Git تلقائيًا لأن فيه أسرارًا.
-
-> ⚠️ على Windows استبدل `export` بـ `$env:SUPABASE_URL="..."` في PowerShell.
 
 ---
 

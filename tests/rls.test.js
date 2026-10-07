@@ -175,6 +175,7 @@ async function main() {
 
   // ---------------------------------------------------------- الحصيلة
   console.log("\n" + "─".repeat(64));
+  console.log(`__EDUVIA_SUITE_DONE__ ok=${pass} fail=${failures.length}`);
   if (failures.length === 0) {
     console.log(`\x1b[32m\x1b[1m✅ نجحت كل الاختبارات — ${pass} تأكيدًا\x1b[0m\n`);
     process.exit(0);

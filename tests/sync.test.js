@@ -45,7 +45,7 @@ function eq(a, e, l) {
 function truthy(v, l) { v ? ok(l) : bad(l, `القيمة ${JSON.stringify(v)}`); }
 
 /* ------------------------------------------------------- بيئة المتصفّح */
-function makeSandbox({ students = [], online = true } = {}) {
+function makeSandbox({ students = [], online = true, mode = "local" } = {}) {
   const store = new Map();
   const el = () => ({ textContent: "", className: "", title: "", innerHTML: "", style: {} });
 
@@ -79,6 +79,10 @@ function makeSandbox({ students = [], online = true } = {}) {
     sandbox,
     { filename: "eduvia-sync.js" }
   );
+  /* نُثبّت الوضع عمدًا بدل الاعتماد على إعداد index.html — كي تُعطي المجموعة
+     النتيجة نفسها سواء كان المشروع موصولًا بخادم أم لا. الاختبارات التي تريد
+     «remote» تضبطه صراحةً بعد الاستدعاء. */
+  sandbox.__T.SYNC.mode = mode;
   return { T: sandbox.__T, sandbox, store };
 }
 
@@ -299,6 +303,7 @@ async function main() {
 
   /* ------------------------------------------------ الحصيلة */
   console.log("\n" + "─".repeat(64));
+  console.log(`__EDUVIA_SUITE_DONE__ ok=${pass} fail=${failures.length}`);
   if (failures.length === 0) {
     console.log(`\x1b[32m\x1b[1m✅ نجحت كل الاختبارات — ${pass} تأكيدًا\x1b[0m\n`);
     process.exit(0);
