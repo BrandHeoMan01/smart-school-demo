@@ -408,6 +408,22 @@ async function testStaff(db) {
       () => db.query(`delete from students where id=$1`, [S.amina]),
       "المعلّمة لا تستطيع حذف تلميذة"
     );
+    /* الوسم على الخادم: العميل لا يرسل school_id، والمشغّل يشتقّه من ملفّه.
+       (مهمّ: مشغّلات BEFORE تعمل **قبل** فحص WITH CHECK للسياسة، فيمرّ الصفّ.) */
+    await allowed(
+      () => db.query(`insert into attendance (student_id,day,state,client_id)
+                      values ($1,current_date-1,'present',$2)`, [S.salma, "cid-stamp-1"]),
+      "المعلّمة تكتب بلا school_id — الخادم يوسمه"
+    );
+    const stamped = await db.query(`select school_id, recorded_by from attendance where client_id='cid-stamp-1'`);
+    eq(stamped.rows[0].school_id, S.school, "school_id وُسم من الخادم لا من العميل");
+    eq(stamped.rows[0].recorded_by, S.uTeacher, "recorded_by وُسم من الخادم (لا يُنتحَل)");
+
+    await denied(
+      () => db.query(`insert into attendance (school_id,student_id,day,state)
+                      values ($1,$2,current_date-2,'present')`, [S.other, S.amina]),
+      "لا يمكن الكتابة في مؤسسة أخرى بتزوير school_id"
+    );
     await denied(
       () => db.query(`insert into students (school_id,card_no,full_name,grade,section,class_label)
                       values ($1,'RF-9999','تلميذة جديدة',1,'أ','1أ')`, [S.school]),

@@ -474,3 +474,60 @@ drop trigger if exists trg_stamp_audit on audit_log;
 create trigger trg_stamp_audit
   before insert on audit_log
   for each row execute function public.stamp_audit();
+
+
+-- ============================================================================
+--  وسم المؤسسة على الخادم — لا يرسله العميل.
+--  لو قبلنا school_id من العميل لأمكنه كتابة صفوف في مؤسسة أخرى (خرق العزل).
+--  هنا يُشتقّ من ملفّ المستخدم نفسه، فيستحيل تزويره من المتصفّح.
+-- ============================================================================
+create or replace function public.stamp_school() returns trigger
+  language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if new.school_id is null then
+    new.school_id := my_school();
+  end if;
+  return new;
+end $$;
+
+do $$
+declare t text;
+begin
+  for t in
+    select c.table_name
+      from information_schema.columns c
+      join pg_tables p
+        on p.schemaname = c.table_schema and p.tablename = c.table_name
+     where c.table_schema = 'public'
+       and c.column_name = 'school_id'
+  loop
+    execute format('drop trigger if exists trg_stamp_school on public.%I', t);
+    execute format(
+      'create trigger trg_stamp_school before insert on public.%I
+         for each row execute function public.stamp_school()', t);
+  end loop;
+end $$;
+
+
+-- ============================================================================
+--  إثبات إضافي: الأثر البيداغوجي يُوسَم بكاتبه من الخادم كذلك.
+--  (recorded_by في الحضور والنقاط — لا يقبله العميل من نفسه)
+-- ============================================================================
+create or replace function public.stamp_author() returns trigger
+  language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if new.recorded_by is null then new.recorded_by := auth.uid(); end if;
+  return new;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['attendance','grades']
+  loop
+    execute format('drop trigger if exists trg_stamp_author on public.%I', t);
+    execute format(
+      'create trigger trg_stamp_author before insert on public.%I
+         for each row execute function public.stamp_author()', t);
+  end loop;
+end $$;

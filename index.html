@@ -1016,6 +1016,10 @@ function markPresent(id){
   const hm=nowHM();st.state="present";st.time=hm;
   gateLog.unshift({time:hm,name:st.name,cls:st.cls,late:false});
   notifs.unshift({time:hm,type:"entry",text:`تحضير يدوي: سُجّلت ${st.name} (${st.cls}) حاضرةً.`});
+  /* الحضور يذهب إلى الطابور — يُحفظ محليًا فورًا ويصل الخادم عند الشبكة */
+  enqueue("attendance", rowFor("attendance",{
+    student_id:id, day:new Date().toISOString().slice(0,10), state:"present", at_time:hm
+  }));
   render();toast("تحضير يدوي ✅",`${st.name} · ${st.cls}`,"g");
 }
 /* ===== القنوات المتعددة — درس: القناة الواحدة تفشل دائمًا (Wilma الفنلدي) =====
@@ -1029,7 +1033,15 @@ let activeChannels={app:true,sms:true,call:false};
 let OUTBOX=[];
 function smsBody(st){return `EDUVIA — ابتدائية النور: لم تحضر ابنتكم ${st.name} (${st.cls}) اليوم. للاستفسار يرجى الاتصال بالإدارة.`;}
 function queueMsg(st,text,channel){
-  OUTBOX.unshift({id:"m"+Date.now()+Math.random().toString(36).slice(2,6),sid:st.id,phone:st.phone,name:st.name,parent:st.parent,text,channel,status:"في الانتظار",time:nowHM()});
+  const m={id:"m"+Date.now()+Math.random().toString(36).slice(2,6),sid:st.id,phone:st.phone,name:st.name,parent:st.parent,text,channel,status:"في الانتظار",time:nowHM()};
+  OUTBOX.unshift(m);
+  /* الرسالة تُدرَج في الطابور عند إنشائها لا عند «الإرسال» — فلو أُغلقت
+     الصفحة قبل الإرسال اليدوي، يبقى السجلّ ويصل الخادم عند عودة الشبكة. */
+  const q=enqueue("outbox", rowFor("outbox",{
+    student_id:st.id, channel, phone:st.phone, recipient:st.parent, body:text
+  }));
+  if(q) m.clientId=q.clientId;
+  return m;
 }
 function renderChannels(){
   const el=document.getElementById("chanPick");if(!el)return;
@@ -1572,7 +1584,7 @@ function audit(action,target,detail){
   if(AUDIT.length>500)AUDIT.length=500;
   /* الفاعل صار **حسابًا حقيقيًا** لا دورًا مُختارًا — وهذا ما يجعل الأثر ذا معنى.
      وكل أثر يذهب إلى طابور المزامنة ليصل الخادم عند عودة الشبكة. */
-  enqueue("audit_log",{action,target:target||null,detail:detail||null});
+  enqueue("audit_log", rowFor("audit_log",{action,target,detail}));
 }
 function renderAudit(){
   const el=document.getElementById("auditList");if(!el)return;
@@ -1607,6 +1619,15 @@ function objectNote(id){
   const ta=document.getElementById("obj_"+id);const txt=((ta&&ta.value)||"").trim();
   if(!txt){toast("تنبيه","اكتب سبب الاعتراض أولًا.","a");return;}
   n.reply=txt;n.status="معترَض عليه";n.replyDate=new Date().toISOString().slice(0,10);
+  /* الاعتراض **تعديل على نفس الصفّ** (نفس client_id) — والخادم يفرض وحده
+     المهلة والاعتراض الواحد، ويمنع مسّ الحالة. الواجهة لا تحرس شيئًا هنا. */
+  if(n.clientId){
+    enqueue("behaviour_notes", rowFor("behaviour_notes",{
+      client_id:n.clientId, student_id:n.sid, category:n.cat, kind:n.kind,
+      body:n.note, subject:n.subj||"السلوك", noted_on:n.date,
+      status:n.status, reply:txt, author_name:n.t||null
+    }));
+  }
   audit("تقديم اعتراض على ملاحظة سلوك",n.cat||"",txt);
   renderStudentWing();toast("تمّ تسجيل اعتراضك ✍️","ستُراجعه الإدارة وتردّ عليك.","g");
 }
@@ -1736,7 +1757,17 @@ function postNote(){
   const note=document.getElementById("ntText").value.trim();
   if(!note){toast("تنبيه","اكتب نص الملاحظة أولًا.","a");return;}
   const s=students.find(x=>x.id===sid),kind=behavCat(cat).k;
-  NOTES.unshift({sid,id:"b"+Date.now(),date:new Date().toISOString().slice(0,10),t:"المعلّم",subj:"السلوك",cat,note,kind,status:"قائم"});
+  const today=new Date().toISOString().slice(0,10);
+  const n={sid,id:"b"+Date.now(),date:today,t:"المعلّم",subj:"السلوك",cat,note,kind,status:"قائم"};
+  NOTES.unshift(n);
+  /* نتذكّر مفتاح المزامنة على الملاحظة نفسها: فيصير اعتراض التلميذة لاحقًا
+     **تعديلًا على الصفّ ذاته**، لا نسخة ثانية منها. */
+  const q=enqueue("behaviour_notes", rowFor("behaviour_notes",{
+    student_id:sid, category:cat, kind, body:note, subject:"السلوك",
+    noted_on:today, status:"قائم",
+    author_name:(CURRENT_USER&&CURRENT_USER.name)||"المعلّم"
+  }));
+  if(q) n.clientId=q.clientId;
   audit("تسجيل ملاحظة سلوك",s?s.name:String(sid),cat+" · "+kind);
   document.getElementById("ntText").value="";renderNtList();
   toast("تمّ الإرسال 📌","وصلت إلى "+(s?s.name:"التلميذة")+"، ولها حقّ الاعتراض "+BEHAV_REPLY_DAYS+" أيام.","g");
@@ -1946,11 +1977,51 @@ const newClientId=()=>"c"+Date.now().toString(36)+Math.random().toString(36).sli
 
 function enqueue(table,row){
   if(!table||!row) return null;
-  const item={clientId:newClientId(),table,row:Object.assign({client_id:null},row),ts:new Date().toISOString(),tries:0};
-  item.row.client_id=item.clientId;                 /* الخادم يستعمله لمنع الازدواج */
+  /* احترام client_id قادم: يسمح بتعديل صفّ أُنشئ سابقًا (نفس المفتاح ⇒ upsert
+     يُحدِّث الصفّ نفسه بدل إنشاء نسخة جديدة). بدونه كل اعتراض يُنشئ ملاحظة ثانية. */
+  const cid = row.client_id || newClientId();
+  const item={clientId:cid,table,row:Object.assign({},row,{client_id:cid}),ts:new Date().toISOString(),tries:0};
   QUEUE.push(item); saveQueue(); renderSyncChip();
   if(SYNC.mode==="remote" && SYNC.online) scheduleFlush(800);
   return item;
+}
+
+/* ------------------------------------------------- خريطة الواجهة ← القاعدة
+   الفصل مقصود: العربية للتجربة، واللاتينية للثبات والاستعلام.
+   ولا يُرسَل school_id أبدًا: الخادم يشتقّه من ملفّ المستخدم (مشغّل stamp_school)
+   — فلو أرسله العميل لأمكن تزوير الكتابة في مؤسسة أخرى. */
+const NOTE_STATUS_DB={"قائم":"open","معترَض عليه":"open","ملغى":"revoked","مؤرشف":"archived"};
+const ATT_STATE_DB={present:"present",absent:"absent",late:"late",pending:"pending"};
+const MSG_CHANNEL_DB={app:"app",sms:"sms",call:"call"};
+
+function rowFor(table,o){
+  switch(table){
+    case "audit_log":
+      return {action:o.action,target:o.target==null?null:o.target,detail:o.detail==null?null:o.detail};
+
+    case "behaviour_notes":
+      return {
+        student_id:o.student_id, category:o.category, kind:o.kind, body:o.body,
+        subject:o.subject==null?null:o.subject,
+        noted_on:o.noted_on, status:NOTE_STATUS_DB[o.status]||"open",
+        author_name:o.author_name==null?null:o.author_name,
+        reply:o.reply==null?null:o.reply, client_id:o.client_id
+      };
+
+    case "attendance":
+      return {student_id:o.student_id, day:o.day,
+              state:ATT_STATE_DB[o.state]||"present",
+              at_time:o.at_time==null?null:o.at_time, client_id:o.client_id};
+
+    case "outbox":
+      return {student_id:o.student_id==null?null:o.student_id,
+              channel:MSG_CHANNEL_DB[o.channel]||"app",
+              phone:o.phone==null?null:o.phone, recipient:o.recipient==null?null:o.recipient,
+              body:o.body, status:"queued", client_id:o.client_id};
+
+    default:
+      return o;
+  }
 }
 
 /* ---------------------------------------------------------------- الإرسال */

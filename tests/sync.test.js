@@ -74,7 +74,8 @@ function makeSandbox({ students = [], online = true } = {}) {
   vm.runInContext(
     BLOCK +
     `\n;globalThis.__T={SYNC,QUEUE,enqueue,flushQueue,renderSyncChip,toEmail,eduviaLogin,` +
-    `buildAccounts,sha256,loadQueue,saveQueue,DEMO_STAFF,DEMO_PIN_STUDENT,newClientId};`,
+    `buildAccounts,sha256,loadQueue,saveQueue,DEMO_STAFF,DEMO_PIN_STUDENT,newClientId,` +
+    `rowFor,NOTE_STATUS_DB,ATT_STATE_DB};`,
     sandbox,
     { filename: "eduvia-sync.js" }
   );
@@ -187,7 +188,52 @@ async function main() {
     eq(T.QUEUE.length, 1, "التغيير محفوظ محليًا في كل الأحوال");
   }
 
-  /* ------------------------------------------------ ٤. المؤشّر */
+  /* ------------------------------------------------ ٤. خريطة التحويل */
+  console.log("\n▸ خريطة الواجهة ← القاعدة (العربية ← اللاتينية)");
+  {
+    const { T } = makeSandbox();
+
+    const note = T.rowFor("behaviour_notes", {
+      student_id: "u-1", category: "إخلال بالهدوء", kind: "neg", body: "ضجيج",
+      subject: "الرياضيات", noted_on: "2026-10-01", status: "قائم", author_name: "الأستاذة"
+    });
+    eq(note.status, "open", "«قائم» ← open");
+    eq(note.kind, "neg", "التصنيف يمرّ كما هو");
+    eq(note.category, "إخلال بالهدوء", "الفئة العربية تبقى عربية (بيانات لا مفتاح)");
+    truthy(!("school_id" in note), "لا يُرسَل school_id — الخادم يشتقّه (ضدّ تزوير المؤسسة)");
+    truthy(!("id" in note), "لا يُرسَل id — الخادم يولّده");
+
+    eq(T.rowFor("behaviour_notes", { status: "معترَض عليه" }).status, "open",
+       "«معترَض عليه» ← open (الاعتراض لا يغيّر الحالة — المشغّل يفرض ذلك)");
+    eq(T.rowFor("behaviour_notes", { status: "ملغى" }).status, "revoked", "«ملغى» ← revoked");
+    eq(T.rowFor("behaviour_notes", { status: "مؤرشف" }).status, "archived", "«مؤرشف» ← archived");
+    eq(T.rowFor("behaviour_notes", { status: "شيء غريب" }).status, "open",
+       "حالة مجهولة تعود إلى open (الفشل الآمن: لا صفّ مقفل بصمت)");
+
+    eq(T.rowFor("attendance", { state: "present" }).state, "present", "حضور: present");
+    eq(T.rowFor("attendance", { state: "late" }).state, "late", "حضور: late");
+    eq(T.rowFor("outbox", { channel: "sms", body: "نصّ" }).status, "queued",
+       "الرسالة تُدرَج بحالة queued لا sent (لا نكذب على أنفسنا)");
+    eq(T.rowFor("outbox", { channel: "call" }).channel, "call", "قناة الاتصال تمرّ");
+
+    const au = T.rowFor("audit_log", { action: "عرض", target: undefined, detail: undefined });
+    eq(au.target, null, "الحقول الفارغة تصير null لا undefined (يقرأها Postgres)");
+    eq(au.detail, null, "التفصيل الفارغ null");
+  }
+
+  /* ------------------------------------------------ ٥. إعادة استخدام المفتاح */
+  console.log("\n▸ تعديل صفّ قائم لا إنشاء نسخة ثانية");
+  {
+    const { T } = makeSandbox();
+    const q1 = T.enqueue("behaviour_notes", { body: "ملاحظة" });
+    T.enqueue("behaviour_notes", { client_id: q1.clientId, body: "ملاحظة", reply: "اعتراض" });
+    eq(T.QUEUE.length, 2, "الإدراجان في الطابور");
+    eq(T.QUEUE[0].clientId, T.QUEUE[1].clientId,
+       "لكليهما المفتاح نفسه ⇒ upsert يُحدِّث الصفّ بدل إنشاء ملاحظة ثانية");
+    eq(T.QUEUE[1].row.reply, "اعتراض", "نصّ الاعتراض ضمن الصفّ نفسه");
+  }
+
+  /* ------------------------------------------------ ٦. المؤشّر */
   console.log("\n▸ مؤشّر الحالة (يقول الحقيقة للمستخدم)");
   {
     const { T, sandbox } = makeSandbox();
