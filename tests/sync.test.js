@@ -33,6 +33,22 @@ if (i0 < 0 || i1 < 0) {
 }
 const BLOCK = HTML.slice(i0, i1);
 
+/* ------------------------------------------------- استخراج المُعينات
+   hydrate() لا يعيش في فراغ: يستعمل ثوابت الواجهة (SUBJECTS) ودوالّها
+   (assignAcademics, clampMark, computeMark). نستخرجها **من index.html نفسه**
+   لا نُعيد كتابتها هنا — فنسخة الاختبار المزيّفة تُخفي الأعطال الحقيقية.
+
+   المدى محسوب بدقّة ليتجنّب `let students=...`: لو دخل في النصّ لصار ارتباطًا
+   معجميًا يحجب خاصية البيئة، فيقرأ الاختبار مصفوفةً غير التي تعدّلها الدوال. */
+function slice(from, to) {
+  const a = HTML.indexOf(from);
+  const b = HTML.indexOf(to, a);
+  if (a < 0 || b < 0) throw new Error(`تعذّر استخراج المُعينات: ${from.slice(0, 30)}`);
+  return HTML.slice(a, b);
+}
+const CONSTS = slice('const WEEKDAYS=["الأحد"', "\nlet students=[], teachers=");
+const ACADEMICS = slice("function assignAcademics(s){", "\nfunction setAcc(k){");
+
 /* ------------------------------------------------------------- الإحصاء */
 let pass = 0;
 const failures = [];
@@ -45,7 +61,7 @@ function eq(a, e, l) {
 function truthy(v, l) { v ? ok(l) : bad(l, `القيمة ${JSON.stringify(v)}`); }
 
 /* ------------------------------------------------------- بيئة المتصفّح */
-function makeSandbox({ students = [], online = true, mode = "local" } = {}) {
+function makeSandbox({ students = [], notes = [], online = true, mode = "local" } = {}) {
   const store = new Map();
   const el = () => ({ textContent: "", className: "", title: "", innerHTML: "", style: {} });
 
@@ -64,6 +80,9 @@ function makeSandbox({ students = [], online = true, mode = "local" } = {}) {
     document: { getElementById: () => el(), createElement: () => el(), head: { appendChild() {} } },
     navigator: { onLine: online },
     students,
+    /* غيابها كان يجعل hydrate() يرمي ReferenceError في البيئة المعزولة
+       فتبدو ناجحةً وهي لم تُنفَّذ أصلًا. */
+    NOTES: notes, nextId: 1, teachers: [], gateLog: [], notifs: [],
   };
   sandbox.window = {
     addEventListener: () => {},
@@ -72,10 +91,13 @@ function makeSandbox({ students = [], online = true, mode = "local" } = {}) {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(
-    BLOCK +
+    CONSTS + "\n" + ACADEMICS + "\n" + BLOCK +
     `\n;globalThis.__T={SYNC,QUEUE,enqueue,flushQueue,renderSyncChip,toEmail,eduviaLogin,` +
     `buildAccounts,sha256,loadQueue,saveQueue,DEMO_STAFF,DEMO_PIN_STUDENT,newClientId,` +
-    `rowFor,NOTE_STATUS_DB,ATT_STATE_DB};`,
+    `rowFor,NOTE_STATUS_DB,ATT_STATE_DB,cloudIdOf,sidOrNull,hydrate,pendingClientIds,` +
+    /* BOOK و announcements ارتباطان معجميان من النصّ المستخرج ⇒ نُخرجهما
+       بقارئ (getter) وإلّا قرأ الاختبار خاصيّةً أخرى غير التي تعدّلها الدوال. */
+    `get BOOK(){return BOOK}, get NOTES(){return NOTES}, get announcements(){return announcements}};`,
     sandbox,
     { filename: "eduvia-sync.js" }
   );
@@ -192,6 +214,53 @@ async function main() {
     eq(T.QUEUE.length, 1, "التغيير محفوظ محليًا في كل الأحوال");
   }
 
+  /* ------------------------------------------------ ٣ب. تعديل صفٍّ قائم */
+  console.log("\n▸ تعديل صفٍّ قائم على الخادم (اعتراض / إلغاء)");
+  {
+    const { T } = makeSandbox({ mode: "remote" });
+
+    /* حارس: تعديل بلا شرط يمسّ **كل** صفّ تسمح به RLS. */
+    eq(T.enqueue("behaviour_notes", { reply: "س" }, { op: "update", match: {} }), null,
+       "تعديل بلا شرط يُرفض (وإلّا عدّلنا كل الصفوف!)");
+
+    const it = T.enqueue("behaviour_notes", { reply: "اعتراضي" },
+                         { op: "update", match: { id: "n1" } });
+    eq(it.op, "update", "النوع «تعديل» لا upsert");
+    eq(it.match.id, "n1", "شرط الصفّ محفوظ");
+    truthy(!("client_id" in it.row), "لا client_id في التعديل — الصفّ قائم على الخادم أصلًا");
+  }
+  {
+    /* تعديل ناجح: الخادم يعيد الصفّ المتأثّر */
+    const { T } = makeSandbox({ mode: "remote" });
+    const seen = [];
+    T.SYNC.client = { from: (t) => ({ update: (row) => ({ select: () => ({
+      eq: (k, v) => { seen.push({ t, row, k, v });
+                      return Promise.resolve({ data: [{ id: v }], error: null }); }
+    }) }) }) };
+
+    T.enqueue("behaviour_notes", { reply: "اعتراضي" }, { op: "update", match: { id: "n1" } });
+    await T.flushQueue();
+    eq(T.QUEUE.length, 0, "التعديل وصل ⇒ خرج من الطابور");
+    eq(seen[0].k, "id", "الشرط على المفتاح");
+    eq(seen[0].v, "n1", "الصفّ المستهدف هو نفسه");
+    eq(seen[0].row.reply, "اعتراضي", "نصّ الاعتراض هو المُرسَل");
+    truthy(!("status" in seen[0].row),
+      "التلميذة لا تُرسل status — الخادم يمنعها بمنحة العمود");
+  }
+  {
+    /* صفر صفوف: RLS رشّحته بصمت. ليس خطأً ظاهرًا — وليس نجاحًا. */
+    const { T } = makeSandbox({ mode: "remote" });
+    T.SYNC.client = { from: () => ({ update: () => ({ select: () => ({
+      eq: () => Promise.resolve({ data: [], error: null })
+    }) }) }) };
+
+    T.enqueue("behaviour_notes", { status: "revoked" }, { op: "update", match: { id: "n9" } });
+    await T.flushQueue();
+    eq(T.QUEUE.length, 0, "لا يبقى عالقًا في الطابور أبدًا");
+    eq(T.SYNC.blocked, 1, "صفر صفوف يُحتسب «ردّه الخادم» ولا يُتجاهل بصمت");
+    eq(T.SYNC.lastBlocked.table, "behaviour_notes", "الجدول مُسجَّل للمراجعة");
+  }
+
   /* ------------------------------------------------ ٤. خريطة التحويل */
   console.log("\n▸ خريطة الواجهة ← القاعدة (العربية ← اللاتينية)");
   {
@@ -223,6 +292,114 @@ async function main() {
     const au = T.rowFor("audit_log", { action: "عرض", target: undefined, detail: undefined });
     eq(au.target, null, "الحقول الفارغة تصير null لا undefined (يقرأها Postgres)");
     eq(au.detail, null, "التفصيل الفارغ null");
+  }
+
+  /* ------------------------------------------------ ٤ب. معبر المعرّفات */
+  console.log("\n▸ معبر المعرّفات (رقم محلّي ⇄ uuid الخادم)");
+  {
+    const { T } = makeSandbox({
+      mode: "remote",
+      students: [
+        { id: 1, name: "مريم", card: "RF-0001", cls: "1أ", cloudId: "u-aaa" },
+        { id: 2, name: "آية",  card: "RF-0002", cls: "1أ" },   /* لم تُنشأ على الخادم بعد */
+      ],
+    });
+
+    eq(T.cloudIdOf(1), "u-aaa", "رقم محلّي ← uuid الخادم");
+    eq(T.cloudIdOf(2), null, "تلميذة بلا uuid (أُضيفت للتوّ) ⇒ null");
+    eq(T.cloudIdOf(99), null, "رقم مجهول ⇒ null");
+
+    const n = T.rowFor("behaviour_notes", {
+      student_id: 1, category: "إخلال بالهدوء", kind: "neg", body: "x",
+      subject: "السلوك", noted_on: "2026-10-01", status: "قائم"
+    });
+    eq(n.student_id, "u-aaa", "الصفّ يُرسَل بـuuid لا برقم (كان يُرفض: invalid uuid)");
+
+    eq(T.rowFor("behaviour_notes", { student_id: 2, body: "x" }), null,
+       "بلا uuid ⇒ لا نُرسل صفًّا يعرف الخادم أنه سيرفضه");
+
+    const L = makeSandbox({ students: [{ id: 7, name: "س", card: "RF-9" }] });
+    eq(L.T.cloudIdOf(7), 7, "وضع محلي بلا خادم: الرقم يمرّ كما هو");
+  }
+
+  /* ------------------------------------------------ ٤ج. الجلب (hydration) */
+  console.log("\n▸ الجلب من الخادم (hydration)");
+  {
+    /* خادم وهمي: نفس شكل ردّ supabase-js (‏{data,error}). */
+    const fakeServer = (rows) => ({
+      auth: { getSession: async () => ({ data: { session: { user: { id: "u1" } } } }) },
+      from: (t) => ({ select: async () => ({ data: rows[t] || [], error: null }) }),
+    });
+    const TODAY = new Date().toISOString().slice(0, 10);
+    const DATA = {
+      students: [
+        { id: "a1", card_no: "RF-0001", full_name: "مريم بن علي", grade: 1, section: "أ", class_label: "1أ", parent_name: "السيد كمال", parent_phone: "0551000001", notify_pref: "sms" },
+        { id: "a2", card_no: "RF-0002", full_name: "آية بن ساسي", grade: 1, section: "أ", class_label: "1أ", parent_name: "السيد رشيد", parent_phone: "0551000002", notify_pref: "app" },
+      ],
+      behaviour_notes: [
+        { id: "n1", student_id: "a1", category: "تحسّن ملحوظ", kind: "pos", body: "أحسنتِ", subject: "اللغة العربية", noted_on: "2026-10-01", author_name: "الأستاذة", reply: null, replied_at: null, status: "open", client_id: null },
+        { id: "n2", student_id: "a1", category: "إخلال بالهدوء", kind: "neg", body: "ضجيج", subject: "الرياضيات", noted_on: "2026-10-02", author_name: "الأستاذة", reply: "اعتراضي", replied_at: "2026-10-03T09:00:00Z", status: "open", client_id: null },
+        { id: "n3", student_id: "a1", category: "تعاون ومساعدة", kind: "pos", body: "نسخة الخادم", subject: "السلوك", noted_on: "2026-10-04", author_name: "أ", reply: null, replied_at: null, status: "open", client_id: "cl-pend" },
+      ],
+      grades: [
+        { id: "g1", student_id: "a1", subject: "اللغة العربية", label: "فرض 1", kind: "summative", mark: 8 },
+        { id: "g2", student_id: "a1", subject: "اللغة العربية", label: "مشاركة صفّية", kind: "formative", mark: 10 },
+      ],
+      attendance: [{ student_id: "a1", day: TODAY, state: "late", at_time: "08:20" }],
+      staff: [{ full_name: "السيدة زهية", job_title: "مديرة المؤسسة", class_label: "الإدارة" }],
+      announcements: [{ title: "إعلان الخادم", body: "نصّ" }],
+      notifications: [{ kind: "system", body: "خبر", at_time: "08:00" }],
+    };
+
+    const { T, sandbox } = makeSandbox({
+      mode: "remote",
+      notes: [{ id: "loc1", clientId: "cl-pend", sid: 1, date: "2026-10-05",
+                t: "أ", subj: "السلوك", cat: "تعاون ومساعدة",
+                note: "صفّ محلّي معلّق", kind: "pos", status: "قائم" }],
+    });
+    /* صفّ معلّق في الطابور (نفس client_id) — أصدق من نسخة الخادم، فلا يُدهَس. */
+    T.enqueue("behaviour_notes", { client_id: "cl-pend", body: "صفّ محلّي معلّق" });
+    T.SYNC.client = fakeServer(DATA);
+
+    const r = await T.hydrate();
+    truthy(r.ok, "الجلب نجح");
+    eq(r.students, 2, "تلميذتان وصلتا من الخادم");
+
+    const S = sandbox.students;
+    eq(S.length, 2, "المصفوفة المحلّية استُبدلت بصفوف المدرسة");
+    eq(S[0].name, "مريم بن علي", "الاسم من الخادم لا من العشوائية");
+    eq(S[0].cloudId, "a1", "uuid محفوظ على الصفّ — به يمرّ كل write لاحق");
+    eq(S[1].cls, "1أ", "القسم من الخادم");
+    eq(S[1].notify, "تطبيق", "تفضيل الإشعار: app ← تطبيق");
+    eq(S[0].state, "late", "حالة اليوم من سجلّ الحضور");
+    eq(S[0].time, "08:20", "وقت الدخول من الخادم");
+
+    const b = T.BOOK[S[0].id + "|اللغة العربية"];
+    truthy(b && b.entries.length === 2, "دفتر النقاط بُذر من صفوف الخادم");
+    eq(b.entries[0].mark, 8, "العلامة كما هي على الخادم");
+    eq(b.entries[1].kind, "formative", "النوع محفوظ (التكويني لا يدخل المعدّل)");
+    eq(S[0].marks[0]["اللغة العربية"], 8, "المعدّل محسوب من صفوف الخادم لا مُخمَّن");
+    truthy(!S[0].marksPartial.includes("اللغة العربية"),
+      "المادة ذات النقاط على الخادم ليست في قائمة «لم تُدخَل»");
+    eq(S[0].marksPartial.length, 6, "الموادّ الستّ الباقية مُعلَنة صراحةً لا ممرَّرة كنقاط رسمية");
+
+    const N = T.NOTES;
+    eq(N.length, 3, "ملاحظتان من الخادم + الملاحظة المحلّية المعلّقة");
+    eq(N.find(x => x.serverId === "n1").status, "قائم", "بلا اعتراض ⇒ «قائم»");
+    eq(N.find(x => x.serverId === "n2").status, "معترَض عليه", "بها اعتراض ⇒ «قيد النظر»");
+    truthy(N.some(x => x.clientId === "cl-pend" && x.note === "صفّ محلّي معلّق"),
+      "الصفّ المعلّق بقي محلّيًا ولم تدهسه نسخة الخادم");
+    truthy(!N.some(x => x.serverId === "n3"), "نسخة الخادم من الصفّ المعلّق أُسقطت");
+    eq(N.find(x => x.serverId === "n1").sid, S[0].id, "الملاحظة مربوطة بالتلميذة بالرقم المحلّي");
+
+    eq(sandbox.teachers.length, 1, "الطاقم من الخادم");
+    eq(T.announcements[0].title, "إعلان الخادم", "الإعلانات من الخادم");
+  }
+  {
+    const { T } = makeSandbox();     /* وضع محلي */
+    const r = await T.hydrate();
+    truthy(!r.ok && r.reason === "local",
+      "محلي: الجلب يُرفض بلطف — المنصّة تعمل بلا خادم كما هو مبدأها الأول");
   }
 
   /* ------------------------------------------------ ٥. إعادة استخدام المفتاح */

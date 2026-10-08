@@ -1089,11 +1089,20 @@ function sendAbsenceAlerts(){
 function openAddStudent(){document.getElementById("modal").classList.remove("hidden");}
 function closeModal(){document.getElementById("modal").classList.add("hidden");}
 function addStudent(){
-  const name=esc(document.getElementById("ns_name").value.trim())||("تلميذة جديدة "+nextId);
+  const raw=(document.getElementById("ns_name").value||"").trim();
   const g=+document.getElementById("ns_grade").value, sec=document.getElementById("ns_sec").value;
   const phone=(document.getElementById("ns_phone").value||"").replace(/[^0-9]/g,"")||genPhone();
-  const st={id:nextId++,name,grade:g,sec,cls:g+sec,card:"RF-00"+(nextCard++),parent:"وليّ "+name,phone,notify:"SMS",state:"present",time:nowHM(),cardState:"active"};
+  const name=esc(raw)||("تلميذة جديدة "+nextId);
+  const st={id:nextId++,name,grade:g,sec,cls:g+sec,card:"RF-00"+(nextCard++),parent:"وليّ "+(raw||name),phone,notify:"SMS",state:"present",time:nowHM(),cardState:"active"};
   assignAcademics(st); students.push(st);
+  /* الإنشاء يذهب إلى الطابور أيضًا — وإلّا صارت التلميذة الجديدة جزيرةً:
+     لا تصل إليها ملاحظة، ولا يتذكّرها أحد بعد إغلاق المتصفّح.
+     uuid تُكتب لها لاحقًا من الخادم (إعادة جلب تلقائية بعد الإرسال). */
+  const q=enqueue("students", rowFor("students",{
+    card_no:st.card, full_name:raw||name, grade:g, section:sec, class_label:g+sec,
+    parent_name:"وليّ "+(raw||name), parent_phone:phone, notify_pref:"sms"
+  }));
+  if(q){ st.clientId=q.clientId; st.source="new"; }
   closeModal();render();toast("تمّت الإضافة ✅",`${name} · ${g}${sec}`,"g");
   document.getElementById("ns_name").value="";document.getElementById("ns_phone").value="";
 }
@@ -1154,6 +1163,22 @@ function renderRolePicker(){ renderDemoAccounts(); }
 
 function renderDemoAccounts(){
   const el=document.getElementById("demoAccTable"); if(!el) return;
+  const det=(typeof el.closest==="function")?el.closest(".demoacc"):null;
+  const sum=det?det.querySelector("summary"):null;
+
+  /* الوضع الموصول: الحسابات الحقيقية على الخادم لا المحلّية.
+     عرضُ الأرقام المحلّية هنا **كان يُضلّل**: المستخدمة تجرّبها فيرفضها
+     الخادم بحقّ — فتبدو المنصّة معطوبة وهي سليمة. الصدق أولى. */
+  if(SYNC.mode==="remote"){
+    if(sum) sum.textContent="من أين آخذ رمز الدخول؟";
+    el.innerHTML="<tbody><tr><td style='text-align:center;color:var(--muted);line-height:1.9'>"+
+      "المنصّة <b>موصولة بالخادم</b> — الحسابات الحقيقية في ملفّ <span class='code'>roster.csv</span><br>"+
+      "رقم بطاقة التلميذة الأولى: <span class='code'>RF-0001</span><br>"+
+      "والرمز السرّي (٦ أرقام) في الكشف نفسه"+
+      "</td></tr></tbody>";
+    return;
+  }
+
   /* بطاقات التلاميذ **مولَّدة** (RF-00xxxx) لا مكتوبة يدويًا — فنقرأها من
      البيانات نفسها. كتابتها ثابتة كان يُعلن رقمًا لا يعمل. */
   const s0=students[0], s1=students[1];
@@ -1193,10 +1218,32 @@ async function doLogin(){
   try{
     const r=await eduviaLogin(idEl.value, pinEl.value);
     if(!r.ok){ err.textContent=r.error; return; }
-    CURRENT_USER={loginId:idEl.value.trim(), name:r.name, role:r.role};
-    meStudent = (r.role==="student") ? (students.find(s=>s.id===r.studentId)||students[0]) : null;
+    CURRENT_USER={loginId:idEl.value.trim(), name:r.name, role:r.role, studentId:r.studentId||null};
     document.getElementById("login").style.display="none";
     pinEl.value="";
+
+    /* الجلب **قبل** أوّل عرض: بدونه تومض بيانات محلّية مولَّدة ثم تُستبدَل،
+       فترى المستخدمة أرقامًا ليست لها لحظةً كاملة. الترتيب هنا مقصود. */
+    if(r.remote){
+      const h=await hydrate();
+      if(h.ok){
+        toast("من المدرسة ☁️",
+          h.students+" تلميذة · "+h.notes+" ملاحظة سلوك · محمّلة من الخادم.","g");
+      }else{
+        toast("لم يكتمل الجلب ⚠️",
+          "المنصّة تعمل ببيانات هذا الجهاز. "+(h.reason==="offline"?"لا شبكة.":"أعيدي المحاولة لاحقًا."),"y");
+      }
+    }
+
+    /* التلميذة تُعرَّف بـuuid الخادم لا برقم محلّي. */
+    if(r.role==="student"){
+      meStudent = (CURRENT_USER.studentId
+        ? students.find(s=>s.cloudId===CURRENT_USER.studentId)
+        : null) || students[0] || null;
+    }else{
+      meStudent=null;
+    }
+
     applyRole(r.role);
     audit("تسجيل دخول", r.name, SYNC.mode==="remote"?"عبر الخادم":"وضع تجريبي محلي");
   }catch(e){
@@ -1321,6 +1368,21 @@ function renderGrades(){
     const marks=SUBJECTS.map(s=>{const v=st.marks[term][s.n];return `<td class="${markClass(v)}">${v}</td>`;}).join("");
     return `<tr><td class="rankcell">${i+1}</td><td><button class="namebtn" onclick="openProfile(${st.id})">${st.name}</button></td>${marks}<td class="${markClass(st.avg[term])}"><b>${st.avg[term]}</b></td><td>${appreciation(st.avg[term])}</td></tr>`;
   }).join("");
+
+  /* صدق لا تجميل: موادّ بلا نقاط على الخادم تُعرض بأرقام محلّية. نقولها. */
+  const miss=[...new Set(arr.filter(s=>s.marksPartial).flatMap(s=>s.marksPartial))];
+  const msg=(SYNC.hydratedAt&&term===0&&miss.length)
+    ? `<div class="notice y">لم تُدخَل نقاط هذه الموادّ على الخادم بعد، والمعروض فيها <b>تقدير محلّي</b> لا نقطة رسمية: ${miss.map(esc).join(" · ")}</div>`
+    : "";
+  const note=document.getElementById("grNote");
+  if(note) note.innerHTML=msg;
+  else if(msg){
+    const host=document.getElementById("grKpi");
+    if(host&&host.parentNode){
+      const d=document.createElement("div"); d.id="grNote"; d.innerHTML=msg;
+      host.parentNode.insertBefore(d,host.nextSibling);
+    }
+  }
 }
 function renderTimetable(){
   const cls=classesSorted(); fillSelect("ttClass",cls);
@@ -1619,9 +1681,14 @@ function objectNote(id){
   const ta=document.getElementById("obj_"+id);const txt=((ta&&ta.value)||"").trim();
   if(!txt){toast("تنبيه","اكتب سبب الاعتراض أولًا.","a");return;}
   n.reply=txt;n.status="معترَض عليه";n.replyDate=new Date().toISOString().slice(0,10);
-  /* الاعتراض **تعديل على نفس الصفّ** (نفس client_id) — والخادم يفرض وحده
-     المهلة والاعتراض الواحد، ويمنع مسّ الحالة. الواجهة لا تحرس شيئًا هنا. */
-  if(n.clientId){
+  /* الاعتراض **لا يمسّ الحالة ولا أيّ عمود آخر**: التلميذة تكتب `reply`
+     و`replied_at` فقط، والخادم يمنعها من `status` بمنحة على مستوى العمود.
+     الواجهة تُظهر «قيد النظر» للحال، والخادم يبقى هو المرجع. */
+  if(n.serverId){
+    enqueue("behaviour_notes",{reply:txt,replied_at:new Date().toISOString()},
+            {op:"update",match:{id:n.serverId}});
+  }else if(n.clientId){
+    /* ملاحظة أُنشئت محلّيًا ولم تصل بعد — نفس الصفّ بـclient_id (تحديث لا إدراج). */
     enqueue("behaviour_notes", rowFor("behaviour_notes",{
       client_id:n.clientId, student_id:n.sid, category:n.cat, kind:n.kind,
       body:n.note, subject:n.subj||"السلوك", noted_on:n.date,
@@ -1631,8 +1698,20 @@ function objectNote(id){
   audit("تقديم اعتراض على ملاحظة سلوك",n.cat||"",txt);
   renderStudentWing();toast("تمّ تسجيل اعتراضك ✍️","ستُراجعه الإدارة وتردّ عليك.","g");
 }
-function revokeNote(id){const n=NOTES.find(x=>x.id===id);if(!n)return;n.status="ملغى";audit("إلغاء ملاحظة سلوك بعد اعتراض",n.cat||"",n.reply||"");renderNtList();toast("أُلغيت الملاحظة ↩️","سُجِّل الإلغاء في سجلّ التدقيق.","g");}
-function upholdNote(id){const n=NOTES.find(x=>x.id===id);if(!n)return;n.status="قائم";n.replyDate=null;audit("تثبيت ملاحظة سلوك بعد المراجعة",n.cat||"","");renderNtList();toast("ثُبِّتت الملاحظة ✅","بعد المراجعة.","b");}
+function revokeNote(id){const n=NOTES.find(x=>x.id===id);if(!n)return;
+  audit("إلغاء ملاحظة سلوك بعد اعتراض",n.cat||"",n.reply||"");
+  if(n.serverId) enqueue("behaviour_notes",{status:"revoked"},{op:"update",match:{id:n.serverId}});
+  n.status="ملغى";renderNtList();toast("أُلغيت الملاحظة ↩️","سُجِّل الإلغاء في سجلّ التدقيق.","g");}
+function upholdNote(id){const n=NOTES.find(x=>x.id===id);if(!n)return;
+  /* التثبيت **يُغلق** الاعتراض: الحالة تعود `open` ويُمحى نصّه من الصفّ
+     (وقد حُفظ في سجلّ التدقيق سطرًا أعلاه). لو أبقيناه لبقي الصفّ يُقرأ
+     «قيد النظر» أبد الدهر رغم أنّ الإدارة حسمت أمرها. */
+  audit("تثبيت ملاحظة سلوك بعد المراجعة",n.cat||"",n.reply||"");
+  if(n.serverId)
+    enqueue("behaviour_notes",{status:"open",reply:null,replied_at:null},
+            {op:"update",match:{id:n.serverId}});
+  n.status="قائم";n.reply=null;n.replyDate=null;renderNtList();
+  toast("ثُبِّتت الملاحظة ✅","بعد المراجعة.","b");}
 let SUMMONS=[
   {sid:null,name:"عام (كل الأولياء)",reason:"اجتماع أولياء التلاميذ لتقديم منظومة EDUVIA",date:"السبت 20 سبتمبر",status:"مُرسَل"}
 ];
@@ -1659,7 +1738,8 @@ function renderStudentWing(){
   document.getElementById("sgrades").innerHTML=`
     <div class="panel"><div class="section-head"><h2>📊 نقاطي — الفصل الأول</h2><button class="btn" onclick="printReportCard(${st.id})">🖨️ كشف نقاطي</button></div>
     <div class="cards" style="grid-template-columns:repeat(3,1fr)">${kpiCard("معدّلي","🎯",st.avg[0]+" /10","blue")}${kpiCard("رتبتي","🏅",r.rank+" / "+r.total,"")}${kpiCard("التقدير","⭐",appreciation(st.avg[0]),"")}</div>
-    <table><thead><tr><th>المادة</th><th>المعامل</th><th>نقطتي /10</th></tr></thead><tbody>${SUBJECTS.map(s=>`<tr><td>${s.n}</td><td>${s.c}</td><td class="${markClass(st.marks[0][s.n])}"><b>${st.marks[0][s.n]}</b></td></tr>`).join("")}</tbody></table></div>`;
+    <table><thead><tr><th>المادة</th><th>المعامل</th><th>نقطتي /10</th></tr></thead><tbody>${SUBJECTS.map(s=>`<tr><td>${s.n}</td><td>${s.c}</td><td class="${markClass(st.marks[0][s.n])}"><b>${st.marks[0][s.n]}</b></td></tr>`).join("")}</tbody></table>
+    ${st.marksPartial?`<div class="notice y" style="margin-top:10px">لم تُدخَل نقاط هذه الموادّ على الخادم بعد، والمعروض فيها <b>تقدير محلّي</b> لا نقطة رسمية: ${st.marksPartial.map(esc).join(" · ")}</div>`:""}</div>`;
   const stt=st.state==="absent"?'<span class="pill abs">غائبة</span>':st.state==="late"?'<span class="pill late">متأخّرة</span>':'<span class="pill ok">حاضرة</span>';
   document.getElementById("sattendance").innerHTML=`
     <div class="panel"><h2>🗓️ حضوري</h2>
@@ -1768,6 +1848,7 @@ function postNote(){
     author_name:(CURRENT_USER&&CURRENT_USER.name)||"المعلّم"
   }));
   if(q) n.clientId=q.clientId;
+  else toast("لم تُزامَن ⚠️","هذه التلميذة لم تُنشأ على الخادم بعد — بقيت الملاحظة في هذا الجهاز.","y");
   audit("تسجيل ملاحظة سلوك",s?s.name:String(sid),cat+" · "+kind);
   document.getElementById("ntText").value="";renderNtList();
   toast("تمّ الإرسال 📌","وصلت إلى "+(s?s.name:"التلميذة")+"، ولها حقّ الاعتراض "+BEHAV_REPLY_DAYS+" أيام.","g");
@@ -1978,12 +2059,25 @@ let QUEUE=loadQueue();
 function saveQueue(){ try{ localStorage.setItem(QUEUE_KEY,JSON.stringify(QUEUE.slice(-QUEUE_MAX))); }catch(e){} }
 const newClientId=()=>"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
-function enqueue(table,row){
+function enqueue(table,row,opts){
   if(!table||!row) return null;
-  /* احترام client_id قادم: يسمح بتعديل صفّ أُنشئ سابقًا (نفس المفتاح ⇒ upsert
-     يُحدِّث الصفّ نفسه بدل إنشاء نسخة جديدة). بدونه كل اعتراض يُنشئ ملاحظة ثانية. */
+  opts=opts||{};
   const cid = row.client_id || newClientId();
-  const item={clientId:cid,table,row:Object.assign({},row,{client_id:cid}),ts:new Date().toISOString(),tries:0};
+  const item={clientId:cid,table,ts:new Date().toISOString(),tries:0};
+
+  if(opts.op==="update"){
+    /* تعديل صفٍّ **قائم على الخادم** (اعتراض على ملاحظة من البذرة مثلًا):
+       لا client_id هنا أصلًا، فالـupsert لا يجد ما يطابقه. نشترط المفتاح.
+       وحارسٌ لا يُتجاوَز: تعديل **بلا شرط** يمسّ كل صفّ تسمح به RLS. */
+    if(!opts.match||!Object.keys(opts.match).length) return null;
+    item.op="update"; item.match=opts.match; item.row=row;
+  }else{
+    item.op="upsert";
+    /* احترام client_id قادم: يسمح بتعديل صفّ أُنشئ سابقًا (نفس المفتاح ⇒ upsert
+       يُحدِّث الصفّ نفسه بدل إنشاء نسخة جديدة). بدونه كل اعتراض يُنشئ ملاحظة ثانية. */
+    item.row=Object.assign({},row,{client_id:cid});
+  }
+
   QUEUE.push(item); saveQueue(); renderSyncChip();
   if(SYNC.mode==="remote" && SYNC.online) scheduleFlush(800);
   return item;
@@ -1997,30 +2091,67 @@ const NOTE_STATUS_DB={"قائم":"open","معترَض عليه":"open","ملغى
 const ATT_STATE_DB={present:"present",absent:"absent",late:"late",pending:"pending"};
 const MSG_CHANNEL_DB={app:"app",sms:"sms",call:"call"};
 
+/* ------------------------------------------------------- معبر المعرّفات
+   الواجهة تعمل بمعرّفات **رقمية** (1, 2, 3…) لأنها وُلدت بلا خادم، والخادم
+   يعمل بـ**uuid**. هذا هو المعبر الواحد الوحيد بينهما.
+
+   بلا هذا التحويل كان **كل** write يُبعث بـ`student_id: 3` فيردّه Postgres
+   بخطأ «invalid input syntax for type uuid» — ثغرة كانت نائمة ولم يَكشفها
+   إلا التوصيل بالخادم. */
+function cloudIdOf(localId){
+  if(localId==null) return null;
+  const s=students.find(x=>x.id===localId);
+  if(s&&s.cloudId) return s.cloudId;
+  /* الوضع المحلي بلا خادم: لا uuid أصلًا. نُبقي الرقم كما هو — فالمخزن
+     المحلي سجلّ لا يُرسَل، وإسقاطه هنا كان سيُفقد البيانات بلا سبب. */
+  return SYNC.mode==="remote" ? null : localId;
+}
+
+/* الصفوف التي لم تُنشأ على الخادم بعد (تلميذة أُضيفت للتوّ) لا يمكن ربط
+   ملاحظات بها. `false` تعني «مُعرِّفٌ ذُكِر ولم نجد له uuid ⇒ أسقِط العنصر»
+   بدل إرسال صفّ سيرفضه الخادم. أمّا `null` فتعني «لم يُذكر أصلًا». */
+function sidOrNull(localId){
+  if(localId==null) return null;
+  const cid=cloudIdOf(localId);
+  return cid==null ? false : cid;
+}
+
 function rowFor(table,o){
   switch(table){
     case "audit_log":
       return {action:o.action,target:o.target==null?null:o.target,detail:o.detail==null?null:o.detail};
 
-    case "behaviour_notes":
+    case "behaviour_notes":{
+      const sid=sidOrNull(o.student_id); if(sid===false) return null;
       return {
-        student_id:o.student_id, category:o.category, kind:o.kind, body:o.body,
+        student_id:sid, category:o.category, kind:o.kind, body:o.body,
         subject:o.subject==null?null:o.subject,
         noted_on:o.noted_on, status:NOTE_STATUS_DB[o.status]||"open",
         author_name:o.author_name==null?null:o.author_name,
         reply:o.reply==null?null:o.reply, client_id:o.client_id
       };
+    }
 
-    case "attendance":
-      return {student_id:o.student_id, day:o.day,
+    case "attendance":{
+      const sid=sidOrNull(o.student_id); if(sid===false) return null;
+      return {student_id:sid, day:o.day,
               state:ATT_STATE_DB[o.state]||"present",
               at_time:o.at_time==null?null:o.at_time, client_id:o.client_id};
+    }
 
     case "outbox":
-      return {student_id:o.student_id==null?null:o.student_id,
+      return {student_id:cloudIdOf(o.student_id),
               channel:MSG_CHANNEL_DB[o.channel]||"app",
               phone:o.phone==null?null:o.phone, recipient:o.recipient==null?null:o.recipient,
               body:o.body, status:"queued", client_id:o.client_id};
+
+    /* إنشاء تلميذة — school_id لا يُرسَل: مُشغّل stamp_school يشتقّه من
+       ملفّ المستخدم على الخادم، فيستحيل تزوير الكتابة في مؤسسة أخرى. */
+    case "students":
+      return {card_no:o.card_no, full_name:o.full_name, grade:o.grade, section:o.section,
+              class_label:o.class_label, parent_name:o.parent_name==null?null:o.parent_name,
+              parent_phone:o.parent_phone==null?null:o.parent_phone,
+              notify_pref:o.notify_pref||"sms", client_id:o.client_id};
 
     default:
       return o;
@@ -2062,10 +2193,23 @@ async function flushQueue(){
   if(_flushing || SYNC.mode!=="remote" || !SYNC.online || !QUEUE.length) return;
   const client=await ensureClient(); if(!client) return;
   _flushing=true;
+  let sawNewStudent=false;
   try{
     while(QUEUE.length){
       const it=QUEUE[0];
-      const {error}=await client.from(it.table).upsert(it.row,{onConflict:"client_id"});
+      let error=null, affected=null;
+
+      if(it.op==="update"){
+        /* .select() إلزامي: بدونه لا نعرف كم صفًّا مُسّ فعلًا. */
+        let q=client.from(it.table).update(it.row).select("id");
+        for(const k in (it.match||{})) q=q.eq(k,it.match[k]);
+        const r=await q; error=r.error; affected=(r.data||[]).length;
+      }else{
+        const r=await client.from(it.table).upsert(it.row,{onConflict:"client_id"});
+        error=r.error;
+        if(!error && it.table==="students") sawNewStudent=true;
+      }
+
       if(error){
         /* 23505 = ازدواج ⇒ وصل سابقًا فعلًا. هذا نجاح لا فشل. */
         if(error.code==="23505" || /duplicate|already exists/i.test(error.message||"")){
@@ -2073,12 +2217,26 @@ async function flushQueue(){
         }
         throw error;
       }
+
+      /* صفر صفوف **ليس خطأً ظاهرًا**: RLS تُرشّح بصمت، فيبدو التعديل ناجحًا
+         وهو لم يمسّ شيئًا. نسجّله ونمضي — وإلّا بقي الطابور عالقًا أبدًا. */
+      if(it.op==="update" && affected===0){
+        SYNC.blocked=(SYNC.blocked||0)+1;
+        SYNC.lastBlocked={table:it.table,at:new Date(),row:it.row};
+        QUEUE.shift(); saveQueue(); continue;
+      }
+
       QUEUE.shift(); saveQueue(); SYNC.lastSync=new Date(); SYNC.lastError=null;
     }
   }catch(e){
     const it=QUEUE[0];
     if(it){ it.tries=(it.tries||0)+1; it.lastError=String(e.message||e); SYNC.lastError=it.lastError; saveQueue(); }
-  }finally{ _flushing=false; renderSyncChip(); }
+  }finally{
+    _flushing=false; renderSyncChip();
+    /* تلميذة أُنشئت للتوّ لم يكن لها uuid — نُعيد الجلب لنلتقطه، فتصل
+       الملاحظات اللاحقة إليها. بلا هذا تبقى التلميذة الجديدة معزولة. */
+    if(sawNewStudent) setTimeout(()=>{ hydrate(); },600);
+  }
 }
 
 /* ---------------------------------------------------------------- المؤشّر */
@@ -2097,8 +2255,169 @@ function renderSyncChip(){
   }else{
     txt="متزامن ✓"; cls="ok";
     tip=SYNC.lastSync?("آخر مزامنة: "+SYNC.lastSync.toLocaleTimeString("ar")):"كل التغييرات وصلت الخادم.";
+    if(SYNC.hydratedAt) tip="البيانات محمّلة من المدرسة · "+
+      SYNC.hydrated.students+" تلميذة · "+SYNC.hydrated.notes+" ملاحظة · "+tip;
+    if(SYNC.blocked) tip+=" · ⚠️ "+SYNC.blocked+" تغييرًا ردّه الخادم (صلاحية) — راجع سجلّ التدقيق.";
   }
   el.textContent=txt; el.className="syncchip "+cls; el.title=tip;
+}
+
+/* ================================================================ الجلب (hydration)
+   الاتجاه المعاكس للطابور: من **الخادم إلى الواجهة**.
+
+   كانت المنصّة **تُرسل ولا تقرأ**: تسجّل اعتراضًا فيصل الخادم، ثم تعرض
+   بياناتها المحلّية المولَّدة. هنا يُسدّ الفراغ — فتصير «المدرسة» موجودة فعلًا:
+   المديرة ترى ١٠ تلميذات، والتلميذة ترى سجلّها وحدها، من الخادم لا من العشوائية.
+
+   ثلاث قواعد:
+     ① **RLS هي المرشّح.** نطلب `*` من كل الجداول والخادم يعيد ما يحقّ للدور
+        فقط. لا نُكرّر منطق الصلاحيات في العميل — لو اختلفا لكان العميل كاذبًا.
+     ② **لا ندهس تغييرًا معلّقًا.** كل صفّ ما زال في الطابور (نفس client_id)
+        يبقى محلّيًا حتى يصل — فما فعلته المستخدمة لا يختفي أمام عينيها.
+     ③ **فشل الجلب لا يُسقط المنصّة.** تعود للوضع المحلي وتقول ذلك صراحةً. */
+const NOTE_STATUS_UI=n=>n.status==="revoked"?"ملغى"
+  :n.status==="archived"?"مؤرشف"
+  :(n.reply?"معترَض عليه":"قائم");
+const todayISO=()=>new Date().toISOString().slice(0,10);
+function pendingClientIds(){
+  const s=new Set();
+  QUEUE.forEach(i=>{ if(i.row&&i.row.client_id) s.add(i.row.client_id); });
+  return s;
+}
+
+let _hydrating=false;
+async function hydrate(){
+  if(SYNC.mode!=="remote")     return {ok:false,reason:"local"};
+  if(!SYNC.online)             return {ok:false,reason:"offline"};
+  if(_hydrating)               return {ok:false,reason:"busy"};
+  const client=await ensureClient();
+  if(!client)                  return {ok:false,reason:"no-client"};
+  _hydrating=true;
+  try{
+    const {data:{session}}=await client.auth.getSession();
+    if(!session) return {ok:false,reason:"no-session"};
+
+    const pend=pendingClientIds(), errs=[];
+    const get=async t=>{
+      const r=await client.from(t).select("*");
+      /* خطأ الجلب يُسجَّل ولا يُخفى: صمتٌ هنا يبدو كـ«لا بيانات» وهو ليس كذلك. */
+      if(r.error){ errs.push(t); return null; }
+      return r.data||[];
+    };
+    const [sRows,nRows,gRows,aRows,stRows,anRows,ntRows]=await Promise.all([
+      get("students"), get("behaviour_notes"), get("grades"),
+      get("attendance"), get("staff"), get("announcements"), get("notifications")
+    ]);
+
+    if(sRows===null) return {ok:false,reason:"students-failed",errs};
+
+    /* ---------- ① التلاميذ — الهوية الحقيقية ---------- */
+    if(sRows.length){
+      students=sRows.slice()
+        .sort((a,b)=>String(a.card_no).localeCompare(String(b.card_no)))
+        .map((r,i)=>({
+          id:i+1, cloudId:r.id,
+          name:r.full_name, grade:r.grade, sec:r.section, cls:r.class_label,
+          card:r.card_no,
+          parent:r.parent_name||"وليّ الأمر",
+          phone:r.parent_phone||"",
+          notify:r.notify_pref==="app"?"تطبيق":"SMS",
+          state:"present", time:null, cardState:"active", source:"server"
+        }));
+      /* هيكل مؤقّت حتى تصل الأرقام الحقيقية من grades/attendance أدناه. */
+      students.forEach(assignAcademics);
+      BOOK={};                       /* مفاتيحه أرقام محلّية أُعيد توزيعها ⇒ صارت بلا معنى */
+      nextId=students.length+1;
+    }
+
+    /* ---------- ② النقاط — تُبنى من صفوف الخادم لا من العشوائية ---------- */
+    if(gRows&&gRows.length){
+      gRows.forEach(g=>{
+        const s=students.find(x=>x.cloudId===g.student_id); if(!s) return;
+        const k=s.id+"|"+g.subject;
+        if(!BOOK[k]) BOOK[k]={acc:"avg",entries:[]};
+        if(!BOOK[k].entries.some(e=>e.serverId===g.id))
+          BOOK[k].entries.push({serverId:g.id,label:g.label,mark:Number(g.mark),
+                                kind:g.kind==="formative"?"formative":"summative"});
+      });
+      students.forEach(s=>{
+        SUBJECTS.forEach(sub=>{
+          const b=BOOK[s.id+"|"+sub.n];
+          if(b&&b.entries.length) s.marks[0][sub.n]=clampMark(computeMark(b));
+        });
+        let sum=0,co=0;
+        SUBJECTS.forEach(sub=>{sum+=s.marks[0][sub.n]*sub.c;co+=sub.c;});
+        s.avg[0]=Math.round(sum/co*100)/100;
+      });
+    }
+
+    /* ---------- ②ب. ما لم يُدخَل على الخادم بعد — نُعلنه ولا نُمرّره كنقاط
+       الموادّ التي لا صفّ لها على الخادم تحتفظ بقيمة مولَّدة محلّيًا. عرضُها
+       كأنها نقاط رسمية كذبٌ على المعلّمة. نُسمّيها ونصفها «تقدير محلّي». */
+    if(SYNC.mode==="remote"){
+      students.forEach(s=>{
+        const miss=SUBJECTS.filter(su=>{
+          const b=BOOK[s.id+"|"+su.n];
+          return !(b&&b.entries.some(e=>e.serverId));
+        }).map(su=>su.n);
+        s.marksPartial=miss.length?miss:null;
+      });
+    }
+
+    /* ---------- ③ الحضور — ونُشتقّ منه سجلّ البوابة ---------- */
+    if(aRows&&aRows.length){
+      const byS={};
+      aRows.forEach(a=>{ (byS[a.student_id]=byS[a.student_id]||[]).push(a); });
+      students.forEach(s=>{
+        const rows=byS[s.cloudId]; if(!rows||!rows.length) return;
+        const arr=rows.filter(r=>r.state==="present"||r.state==="late").length;
+        s.absDays=rows.filter(r=>r.state==="absent").length;
+        s.attRate=Math.round(arr/rows.length*100);
+        const t=rows.find(r=>String(r.day).slice(0,10)===todayISO());
+        if(t){ s.state=t.state; s.time=t.at_time; s.source="server"; }
+      });
+      gateLog=students.filter(s=>s.time)
+        .map(s=>({time:s.time,name:s.name,cls:s.cls,late:s.state==="late"}))
+        .sort((a,b)=>b.time.localeCompare(a.time));
+    }
+
+    /* ---------- ④ سجلّ السلوك — قلب المنصّة ---------- */
+    if(nRows){
+      const localPending=NOTES.filter(n=>n.clientId&&pend.has(n.clientId));
+      const mapped=nRows
+        .filter(n=>!(n.client_id&&pend.has(n.client_id)))
+        .map(n=>{
+          const s=students.find(x=>x.cloudId===n.student_id);
+          return {
+            id:"srv-"+n.id, serverId:n.id, clientId:n.client_id||null,
+            sid:s?s.id:null,
+            date:String(n.noted_on).slice(0,10),
+            t:n.author_name||"", subj:n.subject||"السلوك",
+            cat:n.category, note:n.body,
+            kind:n.kind==="neg"?"neg":"pos",
+            status:NOTE_STATUS_UI(n),
+            reply:n.reply||null,
+            replyDate:n.replied_at?String(n.replied_at).slice(0,10):null
+          };
+        });
+      if(mapped.length||localPending.length) NOTES=mapped.concat(localPending);
+    }
+
+    /* ---------- ⑤ الطاقم والإعلانات والإشعارات ---------- */
+    if(stRows&&stRows.length)
+      teachers=stRows.map(t=>({name:t.full_name,role:t.job_title,cls:t.class_label||"—"}));
+    if(anRows&&anRows.length)
+      announcements=anRows.map(a=>({time:"",title:a.title,body:a.body,parents:true}));
+    if(ntRows&&ntRows.length)
+      notifs=ntRows.map(n=>({time:n.at_time||"",type:n.kind||"system",text:n.body}));
+
+    SYNC.hydratedAt=new Date();
+    SYNC.hydrated={students:students.length,notes:NOTES.length,errors:errs};
+    return {ok:true,students:students.length,notes:NOTES.length,errs};
+  }catch(e){
+    SYNC.lastError=String(e.message||e);
+    return {ok:false,reason:"exception",message:SYNC.lastError};
+  }finally{ _hydrating=false; }
 }
 
 /* ---------------------------------------------------------------- المصادقة */
