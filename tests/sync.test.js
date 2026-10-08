@@ -48,6 +48,9 @@ function slice(from, to) {
 }
 const CONSTS = slice('const WEEKDAYS=["الأحد"', "\nlet students=[], teachers=");
 const ACADEMICS = slice("function assignAcademics(s){", "\nfunction setAcc(k){");
+/* complaintRow يسكن منطقة الواجهة خارج بلوك المزامنة، وهو ما يبني الصفّ
+   المُرسَل فعلًا — فنستخرجه كما هو بدل نسخة مزيّفة في الاختبار. */
+const COMPLAINTS = slice("function complaintRow(c,over){", "\nasync function submitComplaint(");
 
 /* ------------------------------------------------------------- الإحصاء */
 let pass = 0;
@@ -61,7 +64,7 @@ function eq(a, e, l) {
 function truthy(v, l) { v ? ok(l) : bad(l, `القيمة ${JSON.stringify(v)}`); }
 
 /* ------------------------------------------------------- بيئة المتصفّح */
-function makeSandbox({ students = [], notes = [], online = true, mode = "local" } = {}) {
+function makeSandbox({ students = [], notes = [], complaints = [], online = true, mode = "local" } = {}) {
   const store = new Map();
   const el = () => ({ textContent: "", className: "", title: "", innerHTML: "", style: {} });
 
@@ -81,8 +84,9 @@ function makeSandbox({ students = [], notes = [], online = true, mode = "local" 
     navigator: { onLine: online },
     students,
     /* غيابها كان يجعل hydrate() يرمي ReferenceError في البيئة المعزولة
-       فتبدو ناجحةً وهي لم تُنفَّذ أصلًا. */
-    NOTES: notes, nextId: 1, teachers: [], gateLog: [], notifs: [],
+       فتبدو ناجحةً وهي لم تُنفَّذ أصلًا.
+       `complaints` كذلك: معرَّف خارج بلوك المزامنة، وhydrate() يُعيد إسناده. */
+    NOTES: notes, complaints, nextId: 1, teachers: [], gateLog: [], notifs: [],
   };
   sandbox.window = {
     addEventListener: () => {},
@@ -91,13 +95,15 @@ function makeSandbox({ students = [], notes = [], online = true, mode = "local" 
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(
-    CONSTS + "\n" + ACADEMICS + "\n" + BLOCK +
+    CONSTS + "\n" + ACADEMICS + "\n" + COMPLAINTS + "\n" + BLOCK +
     `\n;globalThis.__T={SYNC,QUEUE,enqueue,flushQueue,renderSyncChip,toEmail,eduviaLogin,` +
     `buildAccounts,sha256,loadQueue,saveQueue,DEMO_STAFF,DEMO_PIN_STUDENT,newClientId,` +
     `rowFor,NOTE_STATUS_DB,ATT_STATE_DB,cloudIdOf,sidOrNull,hydrate,pendingClientIds,` +
+    `complaintRow,ensureUid,` +
     /* BOOK و announcements ارتباطان معجميان من النصّ المستخرج ⇒ نُخرجهما
        بقارئ (getter) وإلّا قرأ الاختبار خاصيّةً أخرى غير التي تعدّلها الدوال. */
-    `get BOOK(){return BOOK}, get NOTES(){return NOTES}, get announcements(){return announcements}};`,
+    `get BOOK(){return BOOK}, get NOTES(){return NOTES}, get announcements(){return announcements},` +
+    `get complaints(){return complaints}};`,
     sandbox,
     { filename: "eduvia-sync.js" }
   );
@@ -326,9 +332,23 @@ async function main() {
   console.log("\n▸ الجلب من الخادم (hydration)");
   {
     /* خادم وهمي: نفس شكل ردّ supabase-js (‏{data,error}). */
+    /* خادم Supabase مصغّر. يحاكي PostgREST في أمرين يهمّان هنا:
+       ① `.limit()` موجودة (يستعملها فحص قدرة الأعمدة في hydrate).
+       ② `select("عمود")` **عمود غير موجود ⇒ خطأ** — وهذا سلوك PostgREST
+          الحقيقي، وهو ما نبنيه عليه فحص sql/004. */
     const fakeServer = (rows) => ({
       auth: { getSession: async () => ({ data: { session: { user: { id: "u1" } } } }) },
-      from: (t) => ({ select: async () => ({ data: rows[t] || [], error: null }) }),
+      from: (t) => ({
+        select: (cols) => {
+          const known = cols === "*" || (rows.__cols || []).includes(cols);
+          const out = known
+            ? { data: rows[t] || [], error: null }
+            : { data: null, error: { code: "PGRST204", message: `column ${cols} does not exist` } };
+          const p = Promise.resolve(out);
+          p.limit = () => Promise.resolve(out);
+          return p;
+        },
+      }),
     });
     const TODAY = new Date().toISOString().slice(0, 10);
     const DATA = {
@@ -349,6 +369,19 @@ async function main() {
       staff: [{ full_name: "السيدة زهية", job_title: "مديرة المؤسسة", class_label: "الإدارة" }],
       announcements: [{ title: "إعلان الخادم", body: "نصّ" }],
       notifications: [{ kind: "system", body: "خبر", at_time: "08:00" }],
+      complaints: [
+        { id: "c1", student_id: "a2", kind: "شكوى", target: "النظافة",
+          body: "دورات المياه تحتاج تنظيفًا", anonymous: false, status: "مُرسَل",
+          created_at: "2026-10-05T10:00:00Z", client_id: null },
+        { id: "c2", student_id: null, kind: "اقتراح", target: "الساحة",
+          body: "مظلّات في الساحة", anonymous: true, status: "قيد المعالجة",
+          created_at: "2026-10-06T11:00:00Z", client_id: null },
+        { id: "c3", student_id: "a1", kind: "شكوى", target: "المطعم",
+          body: "نسخة الخادم من صفّ معلّق", anonymous: false, status: "مُرسَل",
+          created_at: "2026-10-07T11:00:00Z", client_id: "cl-compl" },
+      ],
+      /* وجود هذين العمودين = شُغِّل sql/004. غيابهما يُفعِّل الاحتياط. */
+      __cols: ["target", "anonymous"],
     };
 
     const { T, sandbox } = makeSandbox({
@@ -356,9 +389,13 @@ async function main() {
       notes: [{ id: "loc1", clientId: "cl-pend", sid: 1, date: "2026-10-05",
                 t: "أ", subj: "السلوك", cat: "تعاون ومساعدة",
                 note: "صفّ محلّي معلّق", kind: "pos", status: "قائم" }],
+      complaints: [{ time: "الثلاثاء", kind: "شكوى", target: "المطعم",
+                     text: "صفّ محلّي معلّق", by: "مريم بن علي",
+                     status: "مُرسَل", clientId: "cl-compl" }],
     });
-    /* صفّ معلّق في الطابور (نفس client_id) — أصدق من نسخة الخادم، فلا يُدهَس. */
+    /* صفّان معلّقان في الطابور (نفس client_id) — أصدق من نسخة الخادم، فلا يُدهَسان. */
     T.enqueue("behaviour_notes", { client_id: "cl-pend", body: "صفّ محلّي معلّق" });
+    T.enqueue("complaints", { client_id: "cl-compl", body: "صفّ محلّي معلّق" });
     T.SYNC.client = fakeServer(DATA);
 
     const r = await T.hydrate();
@@ -394,6 +431,18 @@ async function main() {
 
     eq(sandbox.teachers.length, 1, "الطاقم من الخادم");
     eq(T.announcements[0].title, "إعلان الخادم", "الإعلانات من الخادم");
+
+    /* صندوق الشكاوى: كان **لا يغادر الجهاز** — تُحفظ محليًا ويُقال للمستخدمة
+       «وصلت للإدارة». هنا نُثبت أنّ الصفوف تُقرأ من الخادم فعلًا. */
+    const C = T.complaints;
+    eq(C.length, 3, "شكويان من الخادم + الشكوى المحلّية المعلّقة");
+    eq(C[0].clientId, "cl-compl", "الصفّ المعلّق أوّلًا ولم تدهسه نسخة الخادم");
+    truthy(!C.some(x => x.serverId === "c3"), "نسخة الخادم من الصفّ المعلّق أُسقطت");
+    eq(C.find(x => x.serverId === "c1").by, "آية بن ساسي", "الاسم يُربَط بالتلميذة بـuuid");
+    eq(C.find(x => x.serverId === "c2").by, "مجهول", "«مجهولة» تُحترم: لا يُستنتج صاحبها");
+    eq(C.find(x => x.serverId === "c1").target, "النظافة", "الهدف من عموده (sql/004 مُشغَّل)");
+    eq(T.SYNC.complaintsMeta, true, "فحص القدرة: العمودان موجودان ⇒ لا احتياط");
+    eq(r.objections, 1, "اعتراض معلّق واحد يُبلَّغ عنه للمديرة عند الدخول");
   }
   {
     const { T } = makeSandbox();     /* وضع محلي */
@@ -412,6 +461,47 @@ async function main() {
     eq(T.QUEUE[0].clientId, T.QUEUE[1].clientId,
        "لكليهما المفتاح نفسه ⇒ upsert يُحدِّث الصفّ بدل إنشاء ملاحظة ثانية");
     eq(T.QUEUE[1].row.reply, "اعتراض", "نصّ الاعتراض ضمن الصفّ نفسه");
+  }
+
+  /* ------------------------------------------------ ٥ب. صندوق الشكاوى */
+  console.log("\n▸ صندوق الشكاوى: إلى الخادم لا إلى الجهاز");
+  {
+    const S2 = [{ id: 1, name: "مريم بن علي", cls: "1أ", cloudId: "a1" }];
+    const { T } = makeSandbox({ mode: "remote", students: S2 });
+    T.SYNC.uid = "u1";
+
+    /* ① sql/004 لم يُشغَّل بعد. إرسال عمود غير موجود يرفضه PostgREST
+       **ويوقف الطابور كلّه** عنده، فندرجه في المتن ونمضي. */
+    T.SYNC.complaintsMeta = false;
+    const old = T.rowFor("complaints", { kind: "شكوى", body: "نصّ", target: "النظافة",
+                                         anon: false, student_id: 1, client_id: "cc1" });
+    eq(old.target, undefined, "بلا العمود: لا نُرسل `target` (كان سيُوقف الطابور)");
+    eq(old.body, "«النظافة»: نصّ", "الهدف يُدرج في المتن فلا يضيع");
+    eq(old.created_by, "u1", "المالك يُرسَل — القاعدة تشترط created_by = auth.uid()");
+    eq(old.student_id, "a1", "المعرّف الرقمي عُبِر إلى uuid");
+
+    /* ② بعد تشغيل sql/004: الهدف في عموده، والمتن نظيف. */
+    T.SYNC.complaintsMeta = true;
+    const now = T.rowFor("complaints", { kind: "شكوى", body: "نصّ", target: "النظافة",
+                                         anon: false, student_id: 1, client_id: "cc2" });
+    eq(now.target, "النظافة", "الهدف في عموده");
+    eq(now.body, "نصّ", "والمتن نظيف بلا حشو");
+    eq(now.anonymous, false, "وعلم الهوية محفوظ");
+
+    /* ③ المجهولة: لا نُرسل student_id ولا اسمًا — ولا يُستنتج صاحبها. */
+    const anon = T.rowFor("complaints", { kind: "شكوى", body: "نصّ", target: "النظافة",
+                                          anon: true, student_id: 1, client_id: "cc3" });
+    eq(anon.student_id, null, "المجهولة: لا يُربَط الصفّ بتلميذة");
+    eq(anon.anonymous, true, "وعلمها صريح");
+
+    /* ④ عمل المديرة على الشكوى: **تعديل الصفّ نفسه** لا نسخة ثانية. */
+    T.QUEUE.length = 0;
+    T.enqueue("complaints", { status: "تمّت المعالجة" }, { op: "update", match: { id: "c1" } });
+    eq(T.QUEUE[0].op, "update", "تغيير الحالة تعديلٌ لا إدراج");
+    eq(T.QUEUE[0].match.id, "c1", "على الصفّ بعينه (id الخادم)");
+    T.QUEUE.length = 0;
+    eq(T.enqueue("complaints", { status: "x" }, { op: "update", match: {} }), null,
+       "تعديل بلا شرط يُرفض — كان سيَمسّ كل صفّ تسمح به RLS");
   }
 
   /* ------------------------------------------------ ٦. المؤشّر */

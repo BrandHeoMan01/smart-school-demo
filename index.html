@@ -663,6 +663,11 @@ html[data-theme="dark"] .tt .s1,html[data-theme="dark"] .tt .s2,html[data-theme=
 
   <!-- Complaints inbox (admin) -->
   <section id="cinbox" class="page hidden">
+    <!-- الاعتراضات أوّلًا: هي **حقّ دفاع** بمهلة سبعة أيام (الضمانة ②)،
+         ولو دُفنت تحت صندوق الاقتراحات لفقدت المهلة معناها. -->
+    <div class="panel"><h2>⚖️ اعتراضات على ملاحظات السلوك</h2>
+      <div id="objList"></div>
+    </div>
     <div class="panel"><h2>📮 شكاوى واقتراحات التلاميذ</h2>
       <div class="cards" id="inboxKpi" style="grid-template-columns:repeat(3,1fr)"></div>
       <div id="inboxList" style="margin-top:6px"></div>
@@ -984,12 +989,41 @@ function renderNotifs(){
     :'<div class="notice">لا توجد إشعارات.</div>';
   renderChannels();renderOutbox();
 }
-function setCStatus(i,v){if(complaints[i]){complaints[i].status=v;renderInbox();toast("تحديث ✅","تم تحديث حالة الطلب.","g");}}
+function setCStatus(i,v){
+  const c=complaints[i]; if(!c) return;
+  c.status=v; renderInbox();
+  /* الحالة تُكتب على الخادم أيضًا — وإلّا بدت «تمّت المعالجة» للمديرة وحدها
+     وبقيت التلميذة ترى «مُرسَل» أبدًا. */
+  if(c.serverId){
+    enqueue("complaints",{status:v},{op:"update",match:{id:c.serverId}});
+  }else if(c.clientId){
+    enqueue("complaints", complaintRow(c,{status:v}));
+  }
+  toast("تحديث ✅","تم تحديث حالة الطلب.","g");
+}
+
+/* الاعتراض **ليس** شكوى: هو دفاعٌ عن ملاحظة سلوك، ومهلته سبعة أيام.
+   كان يُراجَع في «أدوات المعلّم» وحدها، فيبحث المدير عنه في «شكاوى التلاميذ»
+   فلا يجده — وهذا ما جعل حقًّا مضمونًا يبدو مفقودًا. هنا يُعرض حيث يُتوقَّع. */
+function renderObjections(){
+  const el=document.getElementById("objList"); if(!el) return;
+  const pend=NOTES.filter(n=>n.status==="معترَض عليه");
+  if(!pend.length){
+    const done=NOTES.filter(n=>n.replyDate&&n.status!=="معترَض عليه").length;
+    el.innerHTML='<div class="notice g">لا اعتراضات معلّقة الآن ✅'+
+      (done?' — حُسم '+done+" اعتراضًا سابقًا (أثرها في سجلّ التدقيق).":"")+'</div>';
+    return;
+  }
+  el.innerHTML="<div class=\"notice y\"><b>"+pend.length+" اعتراضًا بانتظار قرار الإدارة.</b> "+
+    "مهلة الردّ "+BEHAV_REPLY_DAYS+" أيام من تسجيل الملاحظة — وبعدها يُقفل الحقّ.</div>"+
+    pend.map(n=>{const s=students.find(x=>x.id===n.sid);n.targetName=s?s.name:"—";return noteCard(n,"admin");}).join("");
+}
 function renderInbox(){
+  renderObjections();
   const el=document.getElementById("inboxList"); if(!el)return;
   const k=document.getElementById("inboxKpi");
   if(k)k.innerHTML=kpiCard("إجمالي الرسائل","📮",complaints.length,"blue")+kpiCard("جديدة","🆕",complaints.filter(c=>c.status==="مُرسَل").length,"amber")+kpiCard("تمّت معالجتها","✅",complaints.filter(c=>c.status==="تمّت المعالجة").length,"green");
-  el.innerHTML=complaints.length?complaints.map((c,i)=>`<div class="notice ${c.kind==="شكوى"?'y':'b'}"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b>${c.kind} · ${c.target}</b><select class="sel" onchange="setCStatus(${i},this.value)" aria-label="حالة الطلب"><option ${c.status==="مُرسَل"?"selected":""}>مُرسَل</option><option ${c.status==="قيد المعالجة"?"selected":""}>قيد المعالجة</option><option ${c.status==="تمّت المعالجة"?"selected":""}>تمّت المعالجة</option></select></div><div style="margin-top:6px;font-size:13px">${c.text}</div><div class="muted" style="margin-top:5px">${c.time} · من: ${c.by}</div></div>`).join(""):'<div class="notice">لا توجد رسائل بعد. عندما يُرسل تلميذ شكوى أو اقتراحًا ستظهر هنا فورًا.</div>';
+  el.innerHTML=complaints.length?complaints.map((c,i)=>`<div class="notice ${c.kind==="شكوى"?'y':'b'}"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b>${esc(c.kind)} · ${esc(c.target)}</b><select class="sel" onchange="setCStatus(${i},this.value)" aria-label="حالة الطلب"><option ${c.status==="مُرسَل"?"selected":""}>مُرسَل</option><option ${c.status==="قيد المعالجة"?"selected":""}>قيد المعالجة</option><option ${c.status==="تمّت المعالجة"?"selected":""}>تمّت المعالجة</option></select></div><div style="margin-top:6px;font-size:13px">${esc(c.text)}</div><div class="muted" style="margin-top:5px">${esc(c.time)} · من: ${esc(c.by)}</div></div>`).join(""):'<div class="notice">لا توجد رسائل بعد. عندما يُرسل تلميذ شكوى أو اقتراحًا ستظهر هنا فورًا.</div>';
 }
 let unread=0;
 function updateBell(){const b=document.getElementById("bell");if(unread>0){b.textContent=unread;b.classList.remove("hidden");}else b.classList.add("hidden");}
@@ -1227,8 +1261,10 @@ async function doLogin(){
     if(r.remote){
       const h=await hydrate();
       if(h.ok){
+        /* الاعتراض حقٌّ بمهلة سبعة أيام — فلا يُنتظر أن يبحث عنه المدير. */
+        const obj=h.objections?' · ⚖️ '+h.objections+" اعتراضًا بانتظار قرارك":"";
         toast("من المدرسة ☁️",
-          h.students+" تلميذة · "+h.notes+" ملاحظة سلوك · محمّلة من الخادم.","g");
+          h.students+" تلميذة · "+h.notes+" ملاحظة سلوك · محمّلة من الخادم"+obj+".","g");
       }else{
         toast("لم يكتمل الجلب ⚠️",
           "المنصّة تعمل ببيانات هذا الجهاز. "+(h.reason==="offline"?"لا شبكة.":"أعيدي المحاولة لاحقًا."),"y");
@@ -1777,18 +1813,37 @@ function cTargets(){
   const opts=kind==="شكوى"?["أستاذ","ناظر/مقتصد","إداري","زميل","أخرى"]:["الأقسام","الساحة","النظافة","المطعم/التغذية","البرنامج الدراسي","الأنشطة","أخرى"];
   document.getElementById("cTarget").innerHTML=opts.map(o=>`<option>${o}</option>`).join("");
 }
-function submitComplaint(){
+/* صفّ الشكوى كما يُرسَل إلى الخادم — مُعرَّف مرّةً واحدة لأنّ الإرسال الأوّل
+   وتغيير الإدارة لحالتها **نفس الصفّ بنفس client_id** (تحديث لا نسخة ثانية). */
+function complaintRow(c,over){
+  return rowFor("complaints",Object.assign({
+    kind:c.kind, body:c.text, status:c.status, target:c.target,
+    anon:c.by==="مجهول", client_id:c.clientId
+  },over||{}));
+}
+async function submitComplaint(){
   const kind=document.getElementById("cKind").value, target=document.getElementById("cTarget").value;
-  const text=esc(document.getElementById("cText").value.trim()), anon=document.getElementById("cAnon").checked;
+  /* المتن يُخزَّن **خامًا** ويُهرَّب عند العرض. تخزينه مُهرَّبًا كان يُفسد
+     الرسالة في القاعدة (و`<` تكتب `&lt;` فيُقرأ الخطأ خطأً آخر). */
+  const text=document.getElementById("cText").value.trim(), anon=document.getElementById("cAnon").checked;
   if(!text){toast("تنبيه","اكتب تفاصيل رسالتك أولًا.","a");return;}
-  complaints.unshift({time:dateStr(),kind,target,text,by:anon?"مجهول":meStudent.name,status:"مُرسَل"});
+  const c={time:dateStr(),kind,target,text,by:anon?"مجهول":meStudent.name,
+           status:"مُرسَل",clientId:newClientId()};
+  complaints.unshift(c);
   document.getElementById("cText").value="";
+  await ensureUid();                       /* RLS يشترط أن يكون للصفّ مالك */
+  enqueue("complaints", complaintRow(c));
   renderComplaints(); renderInbox();
-  toast("تمّ الإرسال ✅","وصلت رسالتك للإدارة بأمان.","g");
+  /* الوعد بقدر ما تحقّق فعلًا. «وصلت للإدارة» في الوضع المحلي **كانت كذبًا**:
+     لم يغادر شيء هذا الجهاز. */
+  toast(SYNC.mode==="remote"?"تمّ الإرسال ✅":"حُفظت محليًا 💾",
+        SYNC.mode==="remote"?"ستصل رسالتك إلى الإدارة على أيّ جهاز."
+                            :"لم يُوصَل خادم بعد — الرسالة في هذا الجهاز وحده.",
+        SYNC.mode==="remote"?"g":"y");
 }
 function renderComplaints(){
   const el=document.getElementById("cList"); if(!el)return;
-  el.innerHTML=complaints.length?complaints.map(c=>`<div class="notice ${c.kind==="شكوى"?'y':'b'}"><div style="display:flex;justify-content:space-between;gap:10px"><b>${c.kind} · ${c.target}</b><span class="pill pend">${c.status}</span></div><div style="margin-top:5px;font-size:13px">${c.text}</div><div class="muted" style="margin-top:5px">${c.time} · ${c.by}</div></div>`).join(""):'<div class="notice">لم ترسل أي طلبٍ بعد.</div>';
+  el.innerHTML=complaints.length?complaints.map(c=>`<div class="notice ${c.kind==="شكوى"?'y':'b'}"><div style="display:flex;justify-content:space-between;gap:10px"><b>${esc(c.kind)} · ${esc(c.target)}</b><span class="pill pend">${esc(c.status)}</span></div><div style="margin-top:5px;font-size:13px">${esc(c.text)}</div><div class="muted" style="margin-top:5px">${esc(c.time)} · ${esc(c.by)}</div></div>`).join(""):'<div class="notice">لم ترسل أي طلبٍ بعد.</div>';
 }
 /* ===== أدوات المعلّم + الاستدعاءات ===== */
 function renderTeacherTools(){
@@ -2041,6 +2096,8 @@ const SYNC = {
   mode: (EDUVIA_CONFIG.supabaseUrl && EDUVIA_CONFIG.supabaseAnonKey) ? "remote" : "local",
   online: (typeof navigator!=="undefined" && "onLine" in navigator) ? navigator.onLine : true,
   client: null,
+  uid: null,            /* auth.uid — تحتاجه الكتابات التي تشترط مالكًا للصفّ */
+  complaintsMeta: null, /* هل شُغِّل sql/004 (عمودا target/anonymous)؟ null = لم يُسأل بعد */
   lastSync: null,
   lastError: null,
   loading: false
@@ -2153,6 +2210,25 @@ function rowFor(table,o){
               parent_phone:o.parent_phone==null?null:o.parent_phone,
               notify_pref:o.notify_pref||"sms", client_id:o.client_id};
 
+    /* الشكوى — القاعدة تشترط `created_by = auth.uid()`، فيُرسَل معرّف الحساب
+       نفسه (والخادم يتحقّق منه؛ لا يُقبل صفٌّ بلا مالك).
+       أمّا `target`/`anonymous` فهما عمودان يُضيفهما sql/004. لو أُرسِلا قبل
+       تشغيله لرفضهما PostgREST **وتوقّف الطابور كلّه** عندهما؛ لذلك لا
+       نُرسلهما إلا بعد إثبات وجودهما (SYNC.complaintsMeta)، وإلّا أدخلنا
+       الهدف في متن الرسالة فلا يضيع. */
+    case "complaints":{
+      const body=o.body, sid=o.anon?null:cloudIdOf(o.student_id);
+      const row={kind:o.kind, body:body, status:o.status||"مُرسَل",
+                 student_id:sid, created_by:SYNC.uid||null, client_id:o.client_id};
+      if(SYNC.complaintsMeta===true){
+        row.target=o.target==null?null:o.target;
+        row.anonymous=!!o.anon;
+      }else if(o.target){
+        row.body="«"+o.target+"»: "+body;
+      }
+      return row;
+    }
+
     default:
       return o;
   }
@@ -2189,11 +2265,23 @@ async function ensureClient(){
   }finally{ SYNC.loading=false; }
 }
 
+/* مُعرِّف الحساب الحالي (auth.uid). تحتاجه الكتابات التي تشترط RLS أن يكون
+   للصفّ مالك: `complaints.created_by = auth.uid()`. يُجلَب مرّة ويُحفظ. */
+async function ensureUid(){
+  if(SYNC.uid) return SYNC.uid;
+  const client=await ensureClient(); if(!client) return null;
+  try{ const {data:{session}}=await client.auth.getSession(); SYNC.uid=session?session.user.id:null; }
+  catch(e){ SYNC.uid=null; }
+  return SYNC.uid;
+}
+
 async function flushQueue(){
   if(_flushing || SYNC.mode!=="remote" || !SYNC.online || !QUEUE.length) return;
   const client=await ensureClient(); if(!client) return;
   _flushing=true;
   let sawNewStudent=false;
+  /* صفوف كُتبت قبل الدخول (شكوى في وضع محلي ثم توصيل) تحتاج المالك أيضًا. */
+  if(!SYNC.uid) await ensureUid();
   try{
     while(QUEUE.length){
       const it=QUEUE[0];
@@ -2255,8 +2343,12 @@ function renderSyncChip(){
   }else{
     txt="متزامن ✓"; cls="ok";
     tip=SYNC.lastSync?("آخر مزامنة: "+SYNC.lastSync.toLocaleTimeString("ar")):"كل التغييرات وصلت الخادم.";
-    if(SYNC.hydratedAt) tip="البيانات محمّلة من المدرسة · "+
-      SYNC.hydrated.students+" تلميذة · "+SYNC.hydrated.notes+" ملاحظة · "+tip;
+    if(SYNC.hydratedAt){
+      tip="البيانات محمّلة من المدرسة · "+SYNC.hydrated.students+" تلميذة · "+
+          SYNC.hydrated.notes+" ملاحظة · "+tip;
+      if(SYNC.hydrated.objections) tip+=" · ⚖️ "+SYNC.hydrated.objections+" اعتراضًا معلّقًا";
+      if(SYNC.complaintsMeta===false) tip+=" · ⚠️ شغّلي sql/004_complaints_meta.sql ليُحفظ «هدف» الشكوى في عموده";
+    }
     if(SYNC.blocked) tip+=" · ⚠️ "+SYNC.blocked+" تغييرًا ردّه الخادم (صلاحية) — راجع سجلّ التدقيق.";
   }
   el.textContent=txt; el.className="syncchip "+cls; el.title=tip;
@@ -2304,10 +2396,15 @@ async function hydrate(){
       if(r.error){ errs.push(t); return null; }
       return r.data||[];
     };
-    const [sRows,nRows,gRows,aRows,stRows,anRows,ntRows]=await Promise.all([
+    const [sRows,nRows,gRows,aRows,stRows,anRows,ntRows,cRows]=await Promise.all([
       get("students"), get("behaviour_notes"), get("grades"),
-      get("attendance"), get("staff"), get("announcements"), get("notifications")
+      get("attendance"), get("staff"), get("announcements"), get("notifications"),
+      get("complaints")
     ]);
+    /* سؤالٌ واحد يمنع عطبًا لاحقًا: `target`/`anonymous` يُضيفهما sql/004.
+       لو أرسلناهما قبل تشغيله لرفضهما الخادم وأوقفا الطابور كلّه. */
+    try{ SYNC.complaintsMeta=!(await client.from("complaints").select("target").limit(1)).error; }
+    catch(e){ SYNC.complaintsMeta=false; }
 
     if(sRows===null) return {ok:false,reason:"students-failed",errs};
 
@@ -2411,9 +2508,34 @@ async function hydrate(){
     if(ntRows&&ntRows.length)
       notifs=ntRows.map(n=>({time:n.at_time||"",type:n.kind||"system",text:n.body}));
 
+    /* ---------- ⑥ الشكاوى — صندوق **المدرسة** لا صندوق الجهاز ----------
+       كانت الشكوى تُحفظ محلّيًا فقط وتُعلَن «وصلت للإدارة»، وهي لم تغادر
+       الجهاز قطّ. الآن تُقرأ من الخادم، والمديرة ترى ما أرسلته كل تلميذة. */
+    if(cRows){
+      const localPending=complaints.filter(c=>c.clientId&&pend.has(c.clientId));
+      const mapped=cRows
+        .filter(c=>!(c.client_id&&pend.has(c.client_id)))
+        .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))
+        .map(c=>{
+          const s=students.find(x=>x.cloudId===c.student_id);
+          return {
+            serverId:c.id, clientId:c.client_id||null,
+            time:String(c.created_at||"").slice(0,16).replace("T"," "),
+            kind:c.kind, target:c.target||"", text:c.body,
+            /* «مجهولة» تُحترم: لا نكشف صاحبتها من علاقة أخرى. */
+            by:(c.anonymous||!s)?"مجهول":s.name,
+            status:c.status
+          };
+        });
+      complaints=localPending.concat(mapped);
+    }
+
     SYNC.hydratedAt=new Date();
-    SYNC.hydrated={students:students.length,notes:NOTES.length,errors:errs};
-    return {ok:true,students:students.length,notes:NOTES.length,errs};
+    SYNC.hydrated={students:students.length,notes:NOTES.length,
+                   objections:NOTES.filter(n=>n.status==="معترَض عليه").length,
+                   complaints:complaints.length,errors:errs};
+    return {ok:true,students:students.length,notes:NOTES.length,
+            objections:SYNC.hydrated.objections,errs};
   }catch(e){
     SYNC.lastError=String(e.message||e);
     return {ok:false,reason:"exception",message:SYNC.lastError};
@@ -2471,7 +2593,9 @@ async function eduviaLogin(loginId,pin){
     const {data:school}=await client.from("schools").select("name").eq("id",prof.school_id).single();
     if(school&&school.name) CURRENT_SCHOOL=school.name;
     scheduleFlush(200);                              /* أعمال جرت قبل الدخول تُرسَل الآن */
-    return {ok:true,role:prof.role,name:prof.display_name,studentId:prof.student_id,remote:true};
+    SYNC.uid=data.user.id;
+    return {ok:true,role:prof.role,name:prof.display_name,studentId:prof.student_id,
+            uid:data.user.id,remote:true};
   }
 
   const accs=await buildAccounts();

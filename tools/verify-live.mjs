@@ -52,6 +52,7 @@ const rows = fs.readFileSync(ROSTER, "utf8").replace(/^﻿/, "")
   .filter((c) => c.length >= 5);
 
 const student = rows.find((c) => c[0] === "تلميذة");
+const student2 = rows.filter((c) => c[0] === "تلميذة" && c[1] !== student?.[1])[0] || null;
 const director = rows.find((c) => c[1] === "director");
 const teacher = rows.find((c) => c[0] === "طاقم" && c[3] === "teacher");
 if (!student || !director) {
@@ -87,6 +88,19 @@ const patch = async (t, q, row, tok) => {
     body: JSON.stringify(row),
   });
   return { status: r.status, body: await r.json().catch(() => null) };
+};
+const post = async (t, row, tok) => {
+  const r = await fetch(`${URL_}/rest/v1/${t}`, {
+    method: "POST", headers: { ...H(tok), Prefer: "return=representation" },
+    body: JSON.stringify(row),
+  });
+  return { status: r.status, body: await r.json().catch(() => null) };
+};
+/* مُعرِّف الحساب (auth.uid) — القاعدة تشترط created_by، والعميل يرسله من جلسته. */
+const whoami = async (tok) => {
+  const r = await fetch(`${URL_}/auth/v1/user`, { headers: H(tok) });
+  const j = await r.json().catch(() => null);
+  return j ? j.id : null;
 };
 
 /* ============================================================ التشغيل */
@@ -155,6 +169,13 @@ const patch = async (t, q, row, tok) => {
     const after = await get("behaviour_notes", "select=id", stu);
     chk(after.body.length === before, "عدد الملاحظات لم يزد ⇒ لم تُنشأ نسخة ثانية");
 
+    /* جوهر الشكوى المُبلَّغ عنها: هل يُدرَج الاعتراض في قائمة المديرة؟
+       هذا **نفس الاستعلام** الذي يبنيه الآن قسم «اعتراضات على ملاحظات السلوك». */
+    const objs = await get("behaviour_notes", "select=id&status=eq.open&reply=not.is.null", dir);
+    chk((objs.body || []).some((x) => x.id === open.id),
+        "الاعتراض يظهر في قائمة المديرة («قيد النظر») — وهو ما كان يبدو مفقودًا",
+        JSON.stringify(objs.body).slice(0, 120));
+
     /* ---------- ⑤ الحدّ: لا تمسّ الحالة ---------- */
     console.log("\n▸ ⑤ الحدّ — التلميذة لا تمسّ الحالة");
     const bad = await patch("behaviour_notes", "id=eq." + open.id, { status: "revoked" }, stu);
@@ -203,6 +224,46 @@ const patch = async (t, q, row, tok) => {
   if (!KEEP) {
     await fetch(`${URL_}/rest/v1/audit_log?client_id=eq.${encodeURIComponent(cid)}`,
       { method: "DELETE", headers: H(dir) });
+  }
+
+  /* ---------- ⑨ صندوق الشكاوى: كان لا يغادر الجهاز أبدًا ---------- */
+  console.log("\n▸ ⑨ صندوق الشكاوى — صفٌّ كما يبنيه rowFor بالضبط");
+  const tag = "verify-" + Date.now().toString(36);
+  const stuUid = await whoami(stu);
+  /* ملاحظة: `target`/`anonymous` عمودان في sql/004. لم يُشغَّل بعد هنا،
+     فالعميل **يُدرج الهدف في المتن** بدل إرسال عمود يرفضه الخادم. */
+  const cbody = "«النظافة»: أثر إثبات آلي " + tag;
+  const c1 = await post("complaints",
+    { kind: "شكوى", body: cbody, status: "مُرسَل", created_by: stuUid, client_id: tag }, stu);
+  chk(c1.status === 201 && c1.body?.length === 1,
+      "التلميذة أرسلت شكوى ⇒ وصلت القاعدة",
+      `HTTP ${c1.status} · ${JSON.stringify(c1.body).slice(0, 140)}`);
+  const rowId = c1.body?.[0]?.id;
+  chk(c1.body?.[0]?.created_by === stuUid, "الخادم يربطها بصاحبتها (created_by)");
+
+  const cdup = await post("complaints",
+    { kind: "شكوى", body: cbody, status: "مُرسَل", created_by: stuUid, client_id: tag }, stu);
+  chk(cdup.status === 409 || cdup.status === 400,
+      "إعادة الإرسال ⇒ منع الازدواج (لا شكوى مكرّرة)", "HTTP " + cdup.status);
+
+  const cDir = await get("complaints", "select=id,kind,body,status,created_by&client_id=eq." + tag, dir);
+  chk(cDir.body?.length === 1, "المديرة ترى الشكوى — وهذا كان مستحيلًا قبل اليوم");
+  if (student2) {
+    const stu2 = await login(student2[1], student2[4]);
+    const cS2 = await get("complaints", "select=id&client_id=eq." + tag, stu2);
+    chk(cS2.body?.length === 0, "والتلميذة الأخرى لا ترى شكوى زميلتها");
+  }
+  const cUp = await patch("complaints", "id=eq." + rowId, { status: "تمّت المعالجة" }, dir);
+  chk(cUp.status === 200 && cUp.body?.length === 1, "المديرة حدّثت حالة الطلب ⇒ صفّ واحد");
+  if (rowId) {
+    const seen = await get("complaints", "select=status&id=eq." + rowId, stu);
+    chk(seen.body?.[0]?.status === "تمّت المعالجة",
+        "والتلميذة ترى قرار الإدارة (كانت ترى «مُرسَل» أبدًا)");
+  }
+  if (!KEEP && rowId) {
+    /* لا سياسة DELETE للشكاوى — فنبقي الأثر موسومًا بدل أن ندّعي التنظيف. */
+    await patch("complaints", "id=eq." + rowId,
+      { body: "أثر إثبات آلي — يمكن حذفه من Table Editor ← complaints" }, dir);
   }
 
   console.log("\n" + "─".repeat(64));

@@ -136,7 +136,8 @@ async function main() {
   await db.query(read("tests/supabase-shim.sql"));
   await db.query(read("sql/001_schema.sql"));
   await db.query(read("sql/002_rls.sql"));
-  ok("شُغِّل shim + 001_schema + 002_rls بلا أخطاء");
+  await db.query(read("sql/004_complaints_meta.sql"));
+  ok("شُغِّل shim + 001_schema + 002_rls + 004_complaints_meta بلا أخطاء");
 
   // منح صلاحيات الجداول (Supabase يمنحها افتراضيًا)
   await db.query(
@@ -156,6 +157,8 @@ async function main() {
   await testIdentity(db);
   console.log("\n▸ التلميذة: حقّ الاعتراض (الضمانة ②)");
   await testStudentReply(db);
+  console.log("\n▸ التلميذة: صندوق الشكاوى (حقّها، بملكية مفروضة من الخادم)");
+  await testComplaints(db);
   console.log("\n▸ التلميذة: حدود القراءة والكتابة");
   await testStudentLimits(db);
   console.log("\n▸ المعلّمة / المدير / الناظر / الأمانة");
@@ -351,6 +354,66 @@ async function testStudentReply(db) {
     const n = await count(db,
       `select count(*)::int n from behaviour_notes where id='44444444-4444-4444-4444-444444444403'`);
     eq(n, 0, "التلميذة لا ترى ملاحظات تلميذة أخرى (فلا تعترض عليها)");
+  });
+}
+
+async function testComplaints(db) {
+  /* التلميذة تُرسل بلا `created_by` — والمشغّل يوسمها من الخادم.
+     لو لم يوجد لَرُفض الإدراج (سياسة الإدراج تشترط created_by = auth.uid()). */
+  await as(db, S.uAmina, async () => {
+    await allowed(
+      () => db.query(
+        `insert into complaints (kind, body, target, anonymous)
+         values ('شكوى','دورات المياه تحتاج تنظيفًا','النظافة',false)`
+      ),
+      "التلميذة ترسل شكوى ⇒ الخادم يوسم مالكها بنفسه"
+    );
+    await allowed(
+      () => db.query(
+        `insert into complaints (kind, body, target, anonymous)
+         values ('اقتراح','مظلّات في الساحة','الساحة',true)`
+      ),
+      "ويمكن أن ترسلها مجهولة"
+    );
+    const mine = await count(db, `select count(*)::int n from complaints`);
+    eq(mine, 2, "ترى رسالتيها هما فقط");
+  });
+
+  await as(db, S.uSalma, async () => {
+    eq(await count(db, `select count(*)::int n from complaints`), 0,
+       "تلميذة أخرى لا ترى شكاوى زميلتها");
+  });
+
+  await as(db, S.uDirector, async () => {
+    eq(await count(db, `select count(*)::int n from complaints`), 2,
+       "المديرة ترى شكاوى المدرسة كلها");
+    const r = await db.query(
+      `select target, anonymous, student_id, created_by from complaints order by created_at`
+    );
+    eq(r.rows[0].target, "النظافة", "هدف الشكوى في عموده (أُضيف في sql/004)");
+    eq(r.rows[1].anonymous, true, "علم «مجهولة» محفوظ");
+    eq(r.rows[1].student_id, null, "المجهولة غير مربوطة بتلميذة");
+    eq(r.rows[0].created_by, S.uAmina, "الخادم يعرف الكاتبة وإن أخفت اسمها");
+    await allowed(
+      () => db.query(`update complaints set status='تمّت المعالجة' where target='النظافة'`),
+      "المديرة تُحدِّث حالة الطلب"
+    );
+  });
+
+  await as(db, S.uAmina, async () => {
+    /* RLS تُرشّح بصمت: الطلب ينجح و**صفر صفوف** يتأثّر. و«نجح بلا أثر»
+       ليس «استطاعت» — لهذا noWrite لا denied. */
+    await noWrite(
+      () => db.query(`update complaints set status='تمّت المعالجة'`),
+      "التلميذة لا تُغلق شكواها بنفسها (قرار الإدارة)"
+    );
+    eq(await count(db, `select count(*)::int n from complaints where status='تمّت المعالجة'`), 1,
+       "لكنها ترى الحالة التي حدّدتها الإدارة — والصفّ الآخر لم يُمسّ");
+  });
+
+  await as(db, S.uOtherSchool, async () => {
+    eq(await count(db, `select count(*)::int n from complaints`), 0,
+       "تلميذة مؤسسة أخرى لا ترى شيئًا (عزل المؤسسات)");
   });
 }
 
