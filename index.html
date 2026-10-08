@@ -2098,6 +2098,9 @@ const SYNC = {
   client: null,
   uid: null,            /* auth.uid — تحتاجه الكتابات التي تشترط مالكًا للصفّ */
   complaintsMeta: null, /* هل شُغِّل sql/004 (عمودا target/anonymous)؟ null = لم يُسأل بعد */
+  blocked: 0,           /* صفوف ردّها الخادم نهائيًّا ولم تصل */
+  stale: 0,             /* صفوف كانت موجودة فطُويت نسختها الأحدث (بلا upsert) */
+  lastBlocked: null,
   lastSync: null,
   lastError: null,
   loading: false
@@ -2275,13 +2278,21 @@ async function ensureUid(){
   return SYNC.uid;
 }
 
+/* أخطاء لا يُصلحها الانتظار: عمود مفقود · شرط فهرس لا يطابق · تحقّق مرفوض ·
+   نصّ لا يقبله نوعه · مفتاح أجنبيّ مفقود. إعادة المحاولة عليها **تُجمّد الطابور
+   أبدًا** — وهذا بالضبط ما أخفى العطل الكبير تحت أنظارنا: صفٌّ واحد في الرأس
+   منع كل ما خلفه، فبدا الأثر «لم يُرسَل» وهو «لم يُجرَّب أصلًا». */
+const PERMANENT_FAIL=/^(42P10|42703|PGRST204|23514|22P02|23503)$/;
+const MAX_TRIES=8;   /* سقف للفشل العارض أيضًا: صفّ واحد لا يوقف مزامنة مدرسة */
+
 async function flushQueue(){
   if(_flushing || SYNC.mode!=="remote" || !SYNC.online || !QUEUE.length) return;
   const client=await ensureClient(); if(!client) return;
+  /* بلا جلسة لا معنى للإرسال: RLS ترفض كل صفّ. وتكرار الرفض يستهلك المحاولات
+     فيُسقَط صفٌّ سليم بلا ذنب — ننتظر الدخول بدل ذلك. */
+  if(!SYNC.uid && !(await ensureUid())) return;
   _flushing=true;
-  let sawNewStudent=false;
-  /* صفوف كُتبت قبل الدخول (شكوى في وضع محلي ثم توصيل) تحتاج المالك أيضًا. */
-  if(!SYNC.uid) await ensureUid();
+  let sawNewStudent=false, dropped=0;
   try{
     while(QUEUE.length){
       const it=QUEUE[0];
@@ -2293,7 +2304,16 @@ async function flushQueue(){
         for(const k in (it.match||{})) q=q.eq(k,it.match[k]);
         const r=await q; error=r.error; affected=(r.data||[]).length;
       }else{
-        const r=await client.from(it.table).upsert(it.row,{onConflict:"client_id"});
+        let r=await client.from(it.table).upsert(it.row,{onConflict:"client_id"});
+        /* المخطّط الأصلي أنشأ الفهرس الفريد على client_id **جزئيًّا**
+           (`where client_id is not null`)، وPostgres لا يستطيع مطابقة فهرس
+           جزئي بـON CONFLICT ⇒ 42P10 لكل صفّ. نسقط المفتاح ونُرسل إدراجًا
+           عاديًّا: الفهرس نفسه يمنع الازدواج، و23505 تعني «وصل سابقًا» = نجاح.
+           (و`sql/005` يجعل upsert سليمًا؛ هذا حارسٌ لا بديل.) */
+        if(r.error && r.error.code==="42P10"){
+          it._fellBack=true;
+          r=await client.from(it.table).insert(it.row);
+        }
         error=r.error;
         if(!error && it.table==="students") sawNewStudent=true;
       }
@@ -2301,7 +2321,15 @@ async function flushQueue(){
       if(error){
         /* 23505 = ازدواج ⇒ وصل سابقًا فعلًا. هذا نجاح لا فشل. */
         if(error.code==="23505" || /duplicate|already exists/i.test(error.message||"")){
+          /* إلّا إن كنا قد سقطنا إلى الإدراج: فذاك يعني أنّ النسخة الأحدث
+             **لم تُطبَّق** (لا upsert قبل sql/005). نقولها ولا نصمت. */
+          if(it._fellBack){ SYNC.stale=(SYNC.stale||0)+1; }
           QUEUE.shift(); saveQueue(); continue;
+        }
+        if(PERMANENT_FAIL.test(error.code||"") || (it.tries||0)>=MAX_TRIES){
+          SYNC.blocked=(SYNC.blocked||0)+1;
+          SYNC.lastBlocked={table:it.table,code:error.code,message:String(error.message||"").slice(0,160),row:it.row};
+          QUEUE.shift(); saveQueue(); dropped++; continue;
         }
         throw error;
       }
@@ -2321,6 +2349,9 @@ async function flushQueue(){
     if(it){ it.tries=(it.tries||0)+1; it.lastError=String(e.message||e); SYNC.lastError=it.lastError; saveQueue(); }
   }finally{
     _flushing=false; renderSyncChip();
+    /* صفٌّ لم يصل يُعلَن ولا يُسكَت عنه: «لم يُزامَن» أخطر ما يُخفيه صمتٌ. */
+    if(dropped) toast("لم تصل "+dropped+" عملية ⚠️",
+      "رفضها الخادم نهائيًّا. التفاصيل في تلميح مؤشّر المزامنة وسجلّ التدقيق.","a");
     /* تلميذة أُنشئت للتوّ لم يكن لها uuid — نُعيد الجلب لنلتقطه، فتصل
        الملاحظات اللاحقة إليها. بلا هذا تبقى التلميذة الجديدة معزولة. */
     if(sawNewStudent) setTimeout(()=>{ hydrate(); },600);
@@ -2338,8 +2369,15 @@ function renderSyncChip(){
     txt=n?("بانتظار الشبكة ("+n+")"):"بلا شبكة"; cls="off";
     tip="ستُرسل التغييرات تلقائيًا فور عودة الشبكة. لا شيء يضيع.";
   }else if(n){
-    txt="جارٍ المزامنة ("+n+")"; cls="pend";
-    tip=n+" تغييرًا في الطابور بانتظار الإرسال.";
+    /* «جارٍ المزامنة» إلى الأبد كانت **كذبة صامتة**: صفٌّ مرفوض في الرأس
+       يجعل هذا النصّ يبقى أبدًا والطابور لا يتحرّك. الآن نقول الحقيقة. */
+    const stuck=QUEUE[0]&&QUEUE[0].tries>0;
+    txt=stuck?("تعذّرت المزامنة ("+n+")"):("جارٍ المزامنة ("+n+")");
+    cls=stuck?"off":"pend";
+    tip=stuck
+      ? "الصفّ الأوّل رُفض "+(QUEUE[0].tries)+" مرّة: "+(QUEUE[0].lastError||"خطأ غير معروف")+
+        " — و"+n+" عملية تنتظره. أصلِح السبب أو انتظِري؛ وبعد "+MAX_TRIES+" محاولات يُسقَط الصفّ ويُعلَن."
+      : n+" تغييرًا في الطابور بانتظار الإرسال.";
   }else{
     txt="متزامن ✓"; cls="ok";
     tip=SYNC.lastSync?("آخر مزامنة: "+SYNC.lastSync.toLocaleTimeString("ar")):"كل التغييرات وصلت الخادم.";
@@ -2349,7 +2387,9 @@ function renderSyncChip(){
       if(SYNC.hydrated.objections) tip+=" · ⚖️ "+SYNC.hydrated.objections+" اعتراضًا معلّقًا";
       if(SYNC.complaintsMeta===false) tip+=" · ⚠️ شغّلي sql/004_complaints_meta.sql ليُحفظ «هدف» الشكوى في عموده";
     }
-    if(SYNC.blocked) tip+=" · ⚠️ "+SYNC.blocked+" تغييرًا ردّه الخادم (صلاحية) — راجع سجلّ التدقيق.";
+    if(SYNC.stale) tip+=" · ⚠️ "+SYNC.stale+" صفًّا كان موجودًا سابقًا فطُويت نسخته الأحدث — شغّلي sql/005";
+    if(SYNC.blocked) tip+=" · ⚠️ "+SYNC.blocked+" تغييرًا ردّه الخادم نهائيًّا — راجع سجلّ التدقيق"+
+      (SYNC.lastBlocked?" (آخره: "+SYNC.lastBlocked.table+" · "+(SYNC.lastBlocked.code||"")+")":"");
   }
   el.textContent=txt; el.className="syncchip "+cls; el.title=tip;
 }
@@ -2378,6 +2418,14 @@ function pendingClientIds(){
 }
 
 let _hydrating=false;
+/* بصمة صغيرة لما يراه المستخدم الآن — بها نعرف «هل تغيّر شيء على الخادم؟»
+   فنُعيد الرسم عند الحاجة وحدها. تشمل الحالة ونصّ الاعتراض، لأن اعتراضًا
+   يُحسم لا يُغيّر العدد فيفوت لو قسنا بالأعداد. لا تُخزَّن ولا تُرسَل. */
+function stateSignature(){
+  return NOTES.map(n=>n.id+":"+n.status+":"+(n.reply?"r":"-")).join("|")+
+    "#"+complaints.map(c=>(c.serverId||c.clientId||"")+":"+c.status).join("|")+
+    "#"+students.length+"#"+teachers.length;
+}
 async function hydrate(){
   if(SYNC.mode!=="remote")     return {ok:false,reason:"local"};
   if(!SYNC.online)             return {ok:false,reason:"offline"};
@@ -2531,11 +2579,12 @@ async function hydrate(){
     }
 
     SYNC.hydratedAt=new Date();
+    const signature=stateSignature();
     SYNC.hydrated={students:students.length,notes:NOTES.length,
                    objections:NOTES.filter(n=>n.status==="معترَض عليه").length,
                    complaints:complaints.length,errors:errs};
-    return {ok:true,students:students.length,notes:NOTES.length,
-            objections:SYNC.hydrated.objections,errs};
+    return {ok:true,students:students.length,notes:NOTES.length,objections:SYNC.hydrated.objections,
+            signature,errs};
   }catch(e){
     SYNC.lastError=String(e.message||e);
     return {ok:false,reason:"exception",message:SYNC.lastError};
@@ -2609,10 +2658,35 @@ let CURRENT_SCHOOL="ابتدائية النور";
 
 /* ---------------------------------------------------------------- الربط
    مؤشّر الحالة في الترويسة + إعادة المحاولة عند عودة الشبكة. */
-window.addEventListener("online", ()=>{ SYNC.online=true;  renderSyncChip(); scheduleFlush(400); });
+window.addEventListener("online", ()=>{ SYNC.online=true;  renderSyncChip(); scheduleFlush(400); refreshFromServer(true); });
 window.addEventListener("offline",()=>{ SYNC.online=false; renderSyncChip(); });
 setInterval(()=>{ if(QUEUE.length) scheduleFlush(0); }, 30000);
-window.addEventListener("focus",()=>{ if(QUEUE.length) scheduleFlush(0); });
+window.addEventListener("focus",()=>{ if(QUEUE.length) scheduleFlush(0); refreshFromServer(false); });
+
+/* ---------------------------------------------------- تحديث عند العودة
+   الجلسة قد تبقى مفتوحة ساعات: المديرة تفتح نافذتها صباحًا، فتظلّ ترى صورة
+   **لحظة الدخول** ولا تعلم بما وصل بعدها (اعتراضٌ جديد · شكوى · ملاحظة).
+   وهذا بالضبط ما جعل أثر التلميذة يبدو مفقودًا وهو على الخادم.
+
+   شرطان لا يُتجاوَزان: ① لا نُعيد الرسم والمستخدمة **تكتب** (وإلّا ضاع
+   ما كتبته)، ② ولا أكثر من مرّة كل نصف دقيقة (وإلّا صار الجلب عبئًا). */
+let _lastRefresh=0;
+function userIsTyping(){
+  const a=document.activeElement, t=a&&a.tagName;
+  return t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||!!(a&&a.isContentEditable);
+}
+async function refreshFromServer(force){
+  if(SYNC.mode!=="remote"||!SYNC.online) return;
+  if(!force && (userIsTyping() || Date.now()-_lastRefresh < 30000)) return;
+  _lastRefresh=Date.now();
+  const h=await hydrate();
+  /* نُعيد الرسم عند تغيّر فعليّ فقط (بالبصمة لا بالعدد: اعتراضٌ يُحسم لا
+     يُغيّر العدد، وملاحظةٌ تُلغى كذلك) فلا يرتجف ما على الشاشة بلا سبب. */
+  if(h.ok && h.signature && h.signature!==SYNC._sig){
+    SYNC._sig=h.signature;
+    render(); renderSyncChip();
+  }
+}
 
 
 /* ===== الثبات — تبقى البيانات بعد إعادة تحميل الصفحة (localStorage) =====

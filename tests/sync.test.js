@@ -67,9 +67,13 @@ function truthy(v, l) { v ? ok(l) : bad(l, `القيمة ${JSON.stringify(v)}`);
 function makeSandbox({ students = [], notes = [], complaints = [], online = true, mode = "local" } = {}) {
   const store = new Map();
   const el = () => ({ textContent: "", className: "", title: "", innerHTML: "", style: {} });
+  /* الإشعار أثرٌ في الواجهة — نُسجّله لنقيسه بدل أن نُسكته. */
+  const toasts = [];
 
   const sandbox = {
     console,
+    toasts,
+    toast: (t, b, k) => { toasts.push({ t, b, k }); },
     TextEncoder,
     crypto: globalThis.crypto,
     setTimeout: () => 0,          // لا نريد مؤقّتات حقيقية تُبقي العملية حيّة
@@ -167,7 +171,7 @@ async function main() {
   {
     const { T } = makeSandbox();
     let calls = 0;
-    T.SYNC.mode = "remote"; T.SYNC.online = true;
+    T.SYNC.mode = "remote"; T.SYNC.online = true; T.SYNC.uid = "u1";
     T.SYNC.client = { from: () => ({ upsert: async () => { calls++; return { error: null }; } }) };
 
     T.enqueue("audit_log", { action: "أ" });
@@ -181,7 +185,7 @@ async function main() {
   {
     /* المفتاح: ازدواج على الخادم = نجاح لا فشل (وصل سابقًا ثم انقطع الردّ) */
     const { T } = makeSandbox();
-    T.SYNC.mode = "remote"; T.SYNC.online = true;
+    T.SYNC.mode = "remote"; T.SYNC.online = true; T.SYNC.uid = "u1";
     T.SYNC.client = { from: () => ({ upsert: async () => ({ error: { code: "23505", message: "duplicate key" } }) }) };
     T.enqueue("audit_log", { action: "أ" });
     await T.flushQueue();
@@ -190,7 +194,7 @@ async function main() {
   {
     /* فشل حقيقي ⇒ يبقى في الطابور وتزداد المحاولات */
     const { T } = makeSandbox();
-    T.SYNC.mode = "remote"; T.SYNC.online = true;
+    T.SYNC.mode = "remote"; T.SYNC.online = true; T.SYNC.uid = "u1";
     T.SYNC.client = { from: () => ({ upsert: async () => ({ error: { code: "42P01", message: "relation does not exist" } }) }) };
     T.enqueue("audit_log", { action: "أ" });
     await T.flushQueue();
@@ -239,7 +243,7 @@ async function main() {
     /* تعديل ناجح: الخادم يعيد الصفّ المتأثّر */
     const { T } = makeSandbox({ mode: "remote" });
     const seen = [];
-    T.SYNC.client = { from: (t) => ({ update: (row) => ({ select: () => ({
+    T.SYNC.uid = "u1"; T.SYNC.client = { from: (t) => ({ update: (row) => ({ select: () => ({
       eq: (k, v) => { seen.push({ t, row, k, v });
                       return Promise.resolve({ data: [{ id: v }], error: null }); }
     }) }) }) };
@@ -256,7 +260,7 @@ async function main() {
   {
     /* صفر صفوف: RLS رشّحته بصمت. ليس خطأً ظاهرًا — وليس نجاحًا. */
     const { T } = makeSandbox({ mode: "remote" });
-    T.SYNC.client = { from: () => ({ update: () => ({ select: () => ({
+    T.SYNC.uid = "u1"; T.SYNC.client = { from: () => ({ update: () => ({ select: () => ({
       eq: () => Promise.resolve({ data: [], error: null })
     }) }) }) };
 
@@ -449,6 +453,102 @@ async function main() {
     const r = await T.hydrate();
     truthy(!r.ok && r.reason === "local",
       "محلي: الجلب يُرفض بلطف — المنصّة تعمل بلا خادم كما هو مبدأها الأول");
+  }
+
+  /* ------------------------------------------------ ٤ج. الطابور لا يتجمّد */
+  console.log("\n▸ الطابور: صفٌّ واحد لا يوقف مزامنة مدرسة");
+  {
+    /* خادم يردّ بما نُحدّده لكل نداء — لنقيس سلوك flushQueue على أنواع الفشل. */
+    const badServer = (plan) => {
+      let i = 0;
+      const calls = [];
+      return {
+        calls,
+        auth: { getSession: async () => ({ data: { session: { user: { id: "u1" } } } }) },
+        from: (t) => ({
+          upsert: async (row) => { const p = plan[calls.push({ op: "upsert", t, row }) - 1]; return p; },
+          insert: async (row) => { const p = plan[calls.push({ op: "insert", t, row }) - 1]; return p; },
+        }),
+      };
+    };
+
+    /* ① 42P10 (فهرس جزئيّ) ⇒ نسقط إلى الإدراج، والصفّ يصل فعلًا. */
+    {
+      const { T } = makeSandbox({ mode: "remote" });
+      const srv = badServer([
+        { error: { code: "42P10", message: "no unique constraint matching ON CONFLICT" } },
+        { error: null, data: null },
+      ]);
+      T.SYNC.client = srv; T.SYNC.online = true;
+      T.enqueue("audit_log", { action: "أ" });
+      await T.flushQueue();
+      eq(srv.calls.map((c) => c.op).join(","), "upsert,insert",
+         "42P10: يُعاد الصفّ إدراجًا عاديًّا بدل الاستسلام");
+      eq(T.QUEUE.length, 0, "والطابور يُفرَّغ — لا تجمّد");
+    }
+
+    /* ② 23505 بعد السقوط = «وصل سابقًا» لكن النسخة الأحدث طُويت ⇒ تُعلَن. */
+    {
+      const { T } = makeSandbox({ mode: "remote" });
+      const srv = badServer([
+        { error: { code: "42P10", message: "x" } },
+        { error: { code: "23505", message: "duplicate key" } },
+      ]);
+      T.SYNC.client = srv; T.SYNC.online = true; T.SYNC.stale = 0;
+      T.enqueue("audit_log", { action: "أ" });
+      await T.flushQueue();
+      eq(T.QUEUE.length, 0, "الازدواج نجاح لا فشل ⇒ الطابور يمضي");
+      eq(T.SYNC.stale, 1, "لكنّ طيّ النسخة الأحدث يُعَدّ ويُعلَن (لا صمت)");
+    }
+
+    /* ③ خطأ دائم (عمود مفقود) ⇒ يُسقَط ويُعَدّ، ولا يُجمّد ما خلفه. */
+    {
+      const { T, sandbox } = makeSandbox({ mode: "remote" });
+      const srv = badServer([
+        { error: { code: "PGRST204", message: "column target does not exist" } },
+        { error: null, data: null },
+      ]);
+      T.SYNC.client = srv; T.SYNC.online = true;
+      T.enqueue("complaints", { body: "أ" });
+      T.enqueue("audit_log", { action: "ب" });
+      await T.flushQueue();
+      eq(T.QUEUE.length, 0, "الخطأ الدائم لا يمنع الصفّ الذي خلفه (كان يُجمّده أبدًا)");
+      eq(T.SYNC.blocked, 1, "ويُعَدّ المرفوض صراحةً");
+      eq(T.SYNC.lastBlocked.code, "PGRST204", "ويُحفظ سببه للتشخيص");
+      eq(sandbox.toasts.length, 1, "ويُعلَن للمستخدمة بدل الصمت");
+      eq(sandbox.toasts[0].k, "a", "بتحذير لا بنجاح كاذب");
+    }
+
+    /* ④ خطأ عارض (شبكة) ⇒ يبقى في الرأس ويُعاد (لا يُسقَط). */
+    {
+      const { T } = makeSandbox({ mode: "remote" });
+      const srv = badServer([{ error: { code: "08006", message: "connection failure" } }]);
+      T.SYNC.client = srv; T.SYNC.online = true;
+      T.enqueue("audit_log", { action: "أ" });
+      await T.flushQueue();
+      eq(T.QUEUE.length, 1, "الفشل العارض يُحتفظ به لإعادة المحاولة");
+      eq(T.QUEUE[0].tries, 1, "وعدد المحاولات يزداد");
+      const head = srv.calls.length;
+      await T.flushQueue();
+      eq(srv.calls.length > head, true, "ويُعاد فعلًا في المحاولة التالية");
+    }
+
+    /* ⑤ سقف المحاولات: الفشل العارض الطويل لا يوقف المدرسة إلى الأبد. */
+    {
+      const { T } = makeSandbox({ mode: "remote" });
+      T.SYNC.client = badServer(
+        Array.from({ length: 12 }, () => ({ error: { code: "08006", message: "connection failure" } }))
+      );
+      T.SYNC.online = true;
+      T.enqueue("audit_log", { action: "أ" });
+      for (let i = 0; i < 10; i++) {
+        await T.flushQueue();
+        if (!T.QUEUE.length) break;
+        T.QUEUE[0].tries = i + 1;
+      }
+      eq(T.QUEUE.length, 0, "بعد بلوغ السقف يُسقَط الصفّ بدل تجميد الطابور");
+      eq(T.SYNC.blocked >= 1, true, "ويُعَدّ المرفوض صراحةً");
+    }
   }
 
   /* ------------------------------------------------ ٥. إعادة استخدام المفتاح */

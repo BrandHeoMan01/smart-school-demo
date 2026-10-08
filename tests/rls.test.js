@@ -152,6 +152,13 @@ async function main() {
   await seed(db);
   ok("زُرعت بيانات الاختبار (مؤسستان · ٣ تلميذات · ٩ حسابات)");
 
+  /* قبل 005 نُثبت **السبب** ثم نُثبت الشفاء — لا نكتفي بادّعاء الإصلاح. */
+  console.log("\n▸ فهرس client_id: هل يصلح للمزامنة أصلًا؟");
+  await testUpsertBroken(db);
+  await db.query(read("sql/005_client_id_unique.sql"));
+  ok("شُغِّل 005_client_id_unique (الفهرس الجزئي ← كامل)");
+  await testUpsertFixed(db);
+
   // ---------------------------------------------------------- الاختبارات
   console.log("\n▸ المصادقة والهوية");
   await testIdentity(db);
@@ -285,6 +292,82 @@ async function as(db, userId, fn) {
 const count = async (db, sql, params) => Number((await db.query(sql, params)).rows[0].n);
 
 /* ---------------------------------------------------------------- اختبار */
+/* ============================================================================
+   فهرس client_id — الحلقة التي كانت مقطوعة في الوضع الموصول.
+
+   الطابور في العميل يُرسل بـ`upsert` أي `INSERT … ON CONFLICT (client_id)`.
+   والمخطّط 001 أنشأ الفهرس **جزئيًّا** (`where client_id is not null`)، وPostgres
+   لا يستطيع مطابقة فهرس جزئي بهذا الشرط ⇒ 42P10 لكل صفّ. وأول صفّ يبقى في رأس
+   الطابور فيوقف ما خلفه أبدًا — فيبدو الأثر «لم يُرسَل» وهو «لم يُجرَّب».
+
+   هذا الاختبار يُثبت العلّة أولًا، ثم يُثبت أن 005 يُصلحها. لو عاد أحدهم يومًا
+   إلى الفهرس الجزئي «تحسينًا»، يسقط هذا الاختبار ويقول له لماذا لا.
+============================================================================ */
+async function testUpsertBroken(db) {
+  /* كـpostgres (بلا RLS) لعزل سبب المخطّط عن سبب الصلاحية — العلّة ليست صلاحية. */
+  let code = null;
+  try {
+    await db.query(
+      `insert into audit_log (school_id, action, target, detail, client_id)
+       values ($1,'اختبار مزامنة','فهرس','قبل 005','cid-x')
+       on conflict (client_id) do update set detail = excluded.detail`, [S.school]);
+  } catch (e) { code = e.code; }
+  eq(code, "42P10", "الفهرس الجزئي يمنع ON CONFLICT (client_id) — سبب 42P10 بعينه");
+  if (code === "42P10") {
+    ok("وهو ما يعني: الطابور كان يفشل عند **أول صفّ** ويُجمّد كل ما خلفه");
+  }
+}
+
+async function testUpsertFixed(db) {
+  /* نستعمل audit_log: فيه client_id وحده مفتاحًا فريدًا، فلا يتشابك مع قيد
+     طبيعي آخر (مثل (تلميذة، يوم) في attendance) يُشوّش على القياس. */
+  const q = (detail) => db.query(
+    `insert into audit_log (school_id, action, target, detail, client_id)
+     values ($1,'اختبار مزامنة','فهرس',$2,'cid-y')
+     on conflict (client_id) do update set detail = excluded.detail`, [S.school, detail]);
+
+  await allowed(() => q("بعد 005"), "بعد 005: upsert يعمل (INSERT … ON CONFLICT)");
+  await allowed(() => q("إعادة إرسال"), "وإعادة الإرسال بنفس client_id تُحدِّث الصفّ");
+  eq(await count(db, `select count(*)::int n from audit_log where client_id='cid-y'`), 1,
+     "ولم تُنشأ نسخة ثانية ⇒ منع الازدواج يعمل **مع** المزامنة لا ضدّها");
+  const st = await db.query(`select detail from audit_log where client_id='cid-y'`);
+  eq(st.rows[0].detail, "إعادة إرسال", "والقيمة الأخيرة هي الفائزة");
+
+  /* الطريق الحقيقي: الأدوار المعتادة، وبلا school_id من العميل */
+  await as(db, S.uAmina, async () => {
+    await allowed(
+      () => db.query(
+        `insert into audit_log (action, target, detail, client_id)
+         values ('اختبار','مزامنة','من تلميذة','cid-stu')`),
+      "والتلميذة كذلك: school_id يُشتقّ من الخادم والصفّ يمرّ");
+  });
+  await as(db, S.uTeacher, async () => {
+    await allowed(
+      () => db.query(
+        `insert into attendance (student_id, day, state, at_time, client_id)
+         values ($1,'2026-10-09','present','08:05','cid-att')`, [S.amina]),
+      "والمعلّمة تُرسل حضورًا بطريقة المزامنة نفسها");
+    await allowed(
+      () => db.query(
+        `insert into attendance (student_id, day, state, at_time, client_id)
+         values ($1,'2026-10-09','late','08:20','cid-att')
+         on conflict (client_id) do update set state = excluded.state, at_time = excluded.at_time`,
+        [S.amina]),
+      "وإعادة إرسال الحضور تُحدِّث الصفّ نفسه (وإلّا اصطدمت بقيد اليوم الواحد)");
+    eq(await count(db,
+      `select count(*)::int n from attendance
+        where student_id='${S.amina}' and day='2026-10-09'`),
+      1, "سجلّ واحد لحضور اليوم — قيد (تلميذة، يوم) محفوظ لا مكسور");
+    const r = await db.query(`select state, at_time from attendance where client_id='cid-att'`);
+    eq(r.rows[0].state, "late", "والحالة الأخيرة هي التي ثبتت");
+  });
+
+  /* لا نترك أثرًا: الاختبار يُعيد القاعدة كما وجدها، فلا تُفسد صفوفُه
+     قياسَ اختباراتٍ لاحقة (وهذا ما حدث فعلًا عند إضافته أول مرّة). */
+  await db.query(`delete from audit_log where client_id in ('cid-x','cid-y','cid-stu')`);
+  await db.query(`delete from attendance where client_id='cid-att'`);
+}
+
 async function testIdentity(db) {
   await as(db, S.uAmina, async () => {
     const r = await db.query(`select my_role() r, my_school() s, my_student_ids() ids`);

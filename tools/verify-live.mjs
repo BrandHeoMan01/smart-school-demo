@@ -266,6 +266,53 @@ const whoami = async (tok) => {
       { body: "أثر إثبات آلي — يمكن حذفه من Table Editor ← complaints" }, dir);
   }
 
+  /* ---------- ⑩ الطابور: على الطريقة التي ينفّذها flushQueue فعلًا ----------
+     كل الإثباتات أعلاه تستعمل إدراجًا عاديًّا. وهذا بالضبط ما جعل العطل
+     خفيًّا: العميل لا يُدرج، بل **upsert بمفتاح client_id**، وكان يفشل بـ42P10
+     لأن الفهرس الفريد جزئيّ — فلا تُزامَن ولا عملية واحدة. نقيس ما يفعله هو. */
+  console.log("\n▸ ⑩ مسار الكتابة الحقيقي — upsert بمفتاح client_id");
+  const qid = "vq-" + Date.now().toString(36);
+  const qrow = { action: "إثبات مسار الطابور", target: "verify-live", detail: qid, client_id: qid };
+  const upsertAudit = () => fetch(`${URL_}/rest/v1/audit_log?on_conflict=client_id`, {
+    method: "POST",
+    headers: { ...H(dir), Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(qrow),
+  });
+  const insAudit = () => fetch(`${URL_}/rest/v1/audit_log`, {
+    method: "POST",
+    headers: { ...H(dir), Prefer: "return=representation" },
+    body: JSON.stringify(qrow),
+  });
+
+  const up1 = await upsertAudit();
+  const up1Body = await up1.json().catch(() => null);
+  const isOnConflict = up1.status >= 400 && /42P10|on conflict/i.test(JSON.stringify(up1Body));
+
+  if (!isOnConflict) {
+    chk(up1.status === 201 && up1Body?.length === 1,
+        "upsert بمفتاح client_id يعمل ⇒ المزامنة تصل فعلًا",
+        `HTTP ${up1.status} · ${JSON.stringify(up1Body).slice(0, 140)}`);
+    const up2 = await upsertAudit();
+    chk(up2.status === 200 || up2.status === 201,
+        "وإعادة الإرسال بنفس المفتاح تُحدِّث الصفّ نفسه (لا ازدواج)", "HTTP " + up2.status);
+    const cnt = await get("audit_log", "select=id&client_id=eq." + qid, dir);
+    chk((cnt.body || []).length === 1, "وصفّ واحد فقط في القاعدة بعد الإرسالين");
+  } else {
+    /* لم يُشغَّل sql/005: upsert مرفوض. نُثبت أن الحارس في العميل يُنجِح
+       فالمنصّة تعمل — لكن نُعلن العلّة بدل أن نُدّعي السلامة. */
+    no("upsert بمفتاح client_id ⇒ مرفوض (42P10)",
+       "الفهرس الفريد على client_id جزئيّ — شغّلي sql/005_client_id_unique.sql");
+    const ins = await insAudit();
+    const insBody = await ins.json().catch(() => null);
+    chk(ins.status === 201 && insBody?.length === 1,
+        "والحارس في العميل (إدراج عادي) يُنجِح ⇒ الأثر يصل ولا يُجمَّد الطابور");
+    ok("الخلاصة: المنصّة تعمل الآن بالإدراج، وsql/005 يُعيد upsert فيُحدِّث بدل أن يُطوي");
+  }
+  if (!KEEP) {
+    await fetch(`${URL_}/rest/v1/audit_log?client_id=eq.${encodeURIComponent(qid)}`,
+      { method: "DELETE", headers: H(dir) });
+  }
+
   console.log("\n" + "─".repeat(64));
   console.log(`\x1b[1m${pass} نجح · ${fail} فشل\x1b[0m`);
   console.log(fail === 0

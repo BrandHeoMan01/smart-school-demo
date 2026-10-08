@@ -14,7 +14,7 @@
    محفوظة في localStorage أصلًا.
 ============================================================================ */
 
-const CACHE = "eduvia-school-v3";
+const CACHE = "eduvia-school-v4";
 const ASSETS = [
   "./manifest.json",
   "./icons/icon-192.png",
