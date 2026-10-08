@@ -339,7 +339,7 @@ async function main() {
     /* خادم Supabase مصغّر. يحاكي PostgREST في أمرين يهمّان هنا:
        ① `.limit()` موجودة (يستعملها فحص قدرة الأعمدة في hydrate).
        ② `select("عمود")` **عمود غير موجود ⇒ خطأ** — وهذا سلوك PostgREST
-          الحقيقي، وهو ما نبنيه عليه فحص sql/004. */
+          الحقيقي، وهو ما نبنيه عليه فحص sql/006. */
     const fakeServer = (rows) => ({
       auth: { getSession: async () => ({ data: { session: { user: { id: "u1" } } } }) },
       from: (t) => ({
@@ -384,7 +384,7 @@ async function main() {
           body: "نسخة الخادم من صفّ معلّق", anonymous: false, status: "مُرسَل",
           created_at: "2026-10-07T11:00:00Z", client_id: "cl-compl" },
       ],
-      /* وجود هذين العمودين = شُغِّل sql/004. غيابهما يُفعِّل الاحتياط. */
+      /* وجود هذين العمودين = شُغِّل sql/006. غيابهما يُفعِّل الاحتياط. */
       __cols: ["target", "anonymous"],
     };
 
@@ -444,7 +444,7 @@ async function main() {
     truthy(!C.some(x => x.serverId === "c3"), "نسخة الخادم من الصفّ المعلّق أُسقطت");
     eq(C.find(x => x.serverId === "c1").by, "آية بن ساسي", "الاسم يُربَط بالتلميذة بـuuid");
     eq(C.find(x => x.serverId === "c2").by, "مجهول", "«مجهولة» تُحترم: لا يُستنتج صاحبها");
-    eq(C.find(x => x.serverId === "c1").target, "النظافة", "الهدف من عموده (sql/004 مُشغَّل)");
+    eq(C.find(x => x.serverId === "c1").target, "النظافة", "الهدف من عموده (sql/006 مُشغَّل)");
     eq(T.SYNC.complaintsMeta, true, "فحص القدرة: العمودان موجودان ⇒ لا احتياط");
     eq(r.objections, 1, "اعتراض معلّق واحد يُبلَّغ عنه للمديرة عند الدخول");
   }
@@ -466,7 +466,7 @@ async function main() {
         calls,
         auth: { getSession: async () => ({ data: { session: { user: { id: "u1" } } } }) },
         from: (t) => ({
-          upsert: async (row) => { const p = plan[calls.push({ op: "upsert", t, row }) - 1]; return p; },
+          upsert: async (row, opts) => { const p = plan[calls.push({ op: "upsert", t, row, opts }) - 1]; return p; },
           insert: async (row) => { const p = plan[calls.push({ op: "insert", t, row }) - 1]; return p; },
         }),
       };
@@ -549,6 +549,29 @@ async function main() {
       eq(T.QUEUE.length, 0, "بعد بلوغ السقف يُسقَط الصفّ بدل تجميد الطابور");
       eq(T.SYNC.blocked >= 1, true, "ويُعَدّ المرفوض صراحةً");
     }
+
+    /* ⑥ مفتاح الإرسال لكل جدول — يُقاس **ما يُرسله العميل فعلًا**.
+       كان client_id مفتاحًا للجميع، وهذا يصحّ حيث لا قيد طبيعي أضيق. أمّا
+       الحضور فقيده (تلميذة، يوم) والنقاط قيدها (تلميذة، مادة، فصل، تقييم):
+       فلو أُرسل client_id هناك لَردّ الخادم 23505 على القيد الطبيعي، فبدا
+       «وصل سابقًا» وأُسقِط أثرٌ سليم. (كشفه تشغيل 006 على PostgreSQL حقيقي.) */
+    {
+      const { T } = makeSandbox({ mode: "remote" });
+      const srv = badServer([{ error: null }, { error: null }, { error: null }]);
+      T.SYNC.client = srv; T.SYNC.online = true;
+      T.enqueue("audit_log", { action: "أ" });
+      T.enqueue("attendance", { student_id: 3, day: "2026-10-09", state: "present" });
+      T.enqueue("grades", { student_id: 3, subject: "عربية", term: 1, label: "فرض 1", mark: 8 });
+      await T.flushQueue();
+      eq(srv.calls.length, 3, "ثلاث عمليات أُرسلت");
+      eq(srv.calls[0].opts.onConflict, "client_id",
+         "الجدول بلا قيد أضيق ⇒ client_id (منع الازدواج عند إعادة الإرسال)");
+      eq(srv.calls[1].opts.onConflict, "student_id,day",
+         "الحضور ⇒ (تلميذة، يوم)، وإلّا سقط الأثر على قيد اليوم");
+      eq(srv.calls[2].opts.onConflict, "student_id,subject,term,label",
+         "النقاط ⇒ مفتاحها الطبيعي، وإلّا سقط الأثر على قيد التقييم");
+      eq(T.QUEUE.length, 0, "والطابور يُفرَّغ كاملًا");
+    }
   }
 
   /* ------------------------------------------------ ٥. إعادة استخدام المفتاح */
@@ -570,7 +593,7 @@ async function main() {
     const { T } = makeSandbox({ mode: "remote", students: S2 });
     T.SYNC.uid = "u1";
 
-    /* ① sql/004 لم يُشغَّل بعد. إرسال عمود غير موجود يرفضه PostgREST
+    /* ① sql/006 لم يُشغَّل بعد. إرسال عمود غير موجود يرفضه PostgREST
        **ويوقف الطابور كلّه** عنده، فندرجه في المتن ونمضي. */
     T.SYNC.complaintsMeta = false;
     const old = T.rowFor("complaints", { kind: "شكوى", body: "نصّ", target: "النظافة",
@@ -580,7 +603,7 @@ async function main() {
     eq(old.created_by, "u1", "المالك يُرسَل — القاعدة تشترط created_by = auth.uid()");
     eq(old.student_id, "a1", "المعرّف الرقمي عُبِر إلى uuid");
 
-    /* ② بعد تشغيل sql/004: الهدف في عموده، والمتن نظيف. */
+    /* ② بعد تشغيل sql/006: الهدف في عموده، والمتن نظيف. */
     T.SYNC.complaintsMeta = true;
     const now = T.rowFor("complaints", { kind: "شكوى", body: "نصّ", target: "النظافة",
                                          anon: false, student_id: 1, client_id: "cc2" });

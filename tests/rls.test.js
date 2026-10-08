@@ -136,8 +136,7 @@ async function main() {
   await db.query(read("tests/supabase-shim.sql"));
   await db.query(read("sql/001_schema.sql"));
   await db.query(read("sql/002_rls.sql"));
-  await db.query(read("sql/004_complaints_meta.sql"));
-  ok("شُغِّل shim + 001_schema + 002_rls + 004_complaints_meta بلا أخطاء");
+  ok("شُغِّل shim + 001_schema + 002_rls بلا أخطاء");
 
   // منح صلاحيات الجداول (Supabase يمنحها افتراضيًا)
   await db.query(
@@ -152,11 +151,13 @@ async function main() {
   await seed(db);
   ok("زُرعت بيانات الاختبار (مؤسستان · ٣ تلميذات · ٩ حسابات)");
 
-  /* قبل 005 نُثبت **السبب** ثم نُثبت الشفاء — لا نكتفي بادّعاء الإصلاح. */
+  /* قبل الإصلاح نُثبت **السبب** ثم نُثبت الشفاء — لا نكتفي بادّعاء الإصلاح.
+     ونُشغّل الملفّ الذي يُشغّله المستخدم فعلًا (006 = الشكاوى + الفهرس)، لا
+     أجزاءه — فاختبارٌ يقيس غير ما نُسلّمه لا يُثبت شيئًا. */
   console.log("\n▸ فهرس client_id: هل يصلح للمزامنة أصلًا؟");
   await testUpsertBroken(db);
-  await db.query(read("sql/005_client_id_unique.sql"));
-  ok("شُغِّل 005_client_id_unique (الفهرس الجزئي ← كامل)");
+  await db.query(read("sql/006_apply_004_and_005.sql"));
+  ok("شُغِّل 006_apply_004_and_005 (عمودا الشكاوى + الفهرس الجزئي ← كامل)");
   await testUpsertFixed(db);
 
   // ---------------------------------------------------------- الاختبارات
@@ -300,7 +301,7 @@ const count = async (db, sql, params) => Number((await db.query(sql, params)).ro
    لا يستطيع مطابقة فهرس جزئي بهذا الشرط ⇒ 42P10 لكل صفّ. وأول صفّ يبقى في رأس
    الطابور فيوقف ما خلفه أبدًا — فيبدو الأثر «لم يُرسَل» وهو «لم يُجرَّب».
 
-   هذا الاختبار يُثبت العلّة أولًا، ثم يُثبت أن 005 يُصلحها. لو عاد أحدهم يومًا
+   هذا الاختبار يُثبت العلّة أولًا، ثم يُثبت أن 006 يُصلحها. لو عاد أحدهم يومًا
    إلى الفهرس الجزئي «تحسينًا»، يسقط هذا الاختبار ويقول له لماذا لا.
 ============================================================================ */
 async function testUpsertBroken(db) {
@@ -309,7 +310,7 @@ async function testUpsertBroken(db) {
   try {
     await db.query(
       `insert into audit_log (school_id, action, target, detail, client_id)
-       values ($1,'اختبار مزامنة','فهرس','قبل 005','cid-x')
+       values ($1,'اختبار مزامنة','فهرس','قبل الإصلاح','cid-x')
        on conflict (client_id) do update set detail = excluded.detail`, [S.school]);
   } catch (e) { code = e.code; }
   eq(code, "42P10", "الفهرس الجزئي يمنع ON CONFLICT (client_id) — سبب 42P10 بعينه");
@@ -326,7 +327,7 @@ async function testUpsertFixed(db) {
      values ($1,'اختبار مزامنة','فهرس',$2,'cid-y')
      on conflict (client_id) do update set detail = excluded.detail`, [S.school, detail]);
 
-  await allowed(() => q("بعد 005"), "بعد 005: upsert يعمل (INSERT … ON CONFLICT)");
+  await allowed(() => q("بعد 006"), "بعد 006: upsert يعمل (INSERT … ON CONFLICT)");
   await allowed(() => q("إعادة إرسال"), "وإعادة الإرسال بنفس client_id تُحدِّث الصفّ");
   eq(await count(db, `select count(*)::int n from audit_log where client_id='cid-y'`), 1,
      "ولم تُنشأ نسخة ثانية ⇒ منع الازدواج يعمل **مع** المزامنة لا ضدّها");
@@ -342,30 +343,49 @@ async function testUpsertFixed(db) {
       "والتلميذة كذلك: school_id يُشتقّ من الخادم والصفّ يمرّ");
   });
   await as(db, S.uTeacher, async () => {
-    await allowed(
-      () => db.query(
-        `insert into attendance (student_id, day, state, at_time, client_id)
-         values ($1,'2026-10-09','present','08:05','cid-att')`, [S.amina]),
-      "والمعلّمة تُرسل حضورًا بطريقة المزامنة نفسها");
-    await allowed(
-      () => db.query(
-        `insert into attendance (student_id, day, state, at_time, client_id)
-         values ($1,'2026-10-09','late','08:20','cid-att')
-         on conflict (client_id) do update set state = excluded.state, at_time = excluded.at_time`,
-        [S.amina]),
-      "وإعادة إرسال الحضور تُحدِّث الصفّ نفسه (وإلّا اصطدمت بقيد اليوم الواحد)");
+    /* الحضور مفتاحه الطبيعي **(تلميذة، يوم)** لا client_id — لأنّ المخطّط يقيد
+       صفًّا واحدًا لكل (تلميذة، يوم). وهذا ليس تفصيلًا نظريًّا: نُثبته مرّتين،
+       مرّةً بالمفتاح الصحيح (ينجح) ومرّةً بالمفتاح الخاطئ (يفشل). وهذا ما كشفه
+       تشغيل 006: كان 42P10 يحجب الطريق كلّه فلا يُقاس أصلًا. */
+    const DAY = "current_date - 30";        /* يومٌ لا تمسّه البذرة */
+    const att = (state, cid) => db.query(
+      `insert into attendance (student_id, day, state, at_time, client_id)
+       values ($1, ${DAY}, $2, '08:05', $3)
+       on conflict (student_id, day) do update
+         set state = excluded.state, at_time = excluded.at_time,
+             client_id = excluded.client_id`,
+      [S.amina, state, cid]);
+
+    await allowed(() => att("present", "cid-att"),
+      "المعلّمة تُرسل حضورًا بمفتاحه الطبيعي (تلميذة، يوم)");
+    await allowed(() => att("late", "cid-att2"),
+      "وإعادة الإرسال تُحدِّث صفّ اليوم نفسه (وإلّا اصطدمت بقيد اليوم الواحد)");
     eq(await count(db,
       `select count(*)::int n from attendance
-        where student_id='${S.amina}' and day='2026-10-09'`),
+        where student_id='${S.amina}' and day = ${DAY}`),
       1, "سجلّ واحد لحضور اليوم — قيد (تلميذة، يوم) محفوظ لا مكسور");
-    const r = await db.query(`select state, at_time from attendance where client_id='cid-att'`);
-    eq(r.rows[0].state, "late", "والحالة الأخيرة هي التي ثبتت");
+    eq((await db.query(
+      `select state from attendance
+        where student_id='${S.amina}' and day = ${DAY}`)).rows[0].state,
+      "late", "والحالة الأخيرة هي التي ثبتت");
+
+    /* البرهان المقابل: بالمفتاح الخاطئ يسقط الأثر السليم. */
+    let code = null;
+    try {
+      await db.query(
+        `insert into attendance (student_id, day, state, client_id)
+         values ($1, ${DAY}, 'absent', 'cid-att3')
+         on conflict (client_id) do nothing`, [S.amina]);
+    } catch (e) { code = e.code; }
+    eq(code, "23505",
+       "ولو استعمل client_id مفتاحًا لاصطدم بقيد اليوم (23505) وسقط الأثر");
+    ok("⇒ لذلك مفتاح الحضور في الطابور (student_id, day) — وقد أُصلح العميل على ذلك");
   });
 
   /* لا نترك أثرًا: الاختبار يُعيد القاعدة كما وجدها، فلا تُفسد صفوفُه
      قياسَ اختباراتٍ لاحقة (وهذا ما حدث فعلًا عند إضافته أول مرّة). */
   await db.query(`delete from audit_log where client_id in ('cid-x','cid-y','cid-stu')`);
-  await db.query(`delete from attendance where client_id='cid-att'`);
+  await db.query(`delete from attendance where client_id in ('cid-att','cid-att2','cid-att3')`);
 }
 
 async function testIdentity(db) {
@@ -473,7 +493,7 @@ async function testComplaints(db) {
     const r = await db.query(
       `select target, anonymous, student_id, created_by from complaints order by created_at`
     );
-    eq(r.rows[0].target, "النظافة", "هدف الشكوى في عموده (أُضيف في sql/004)");
+    eq(r.rows[0].target, "النظافة", "هدف الشكوى في عموده (أُضيف في sql/006)");
     eq(r.rows[1].anonymous, true, "علم «مجهولة» محفوظ");
     eq(r.rows[1].student_id, null, "المجهولة غير مربوطة بتلميذة");
     eq(r.rows[0].created_by, S.uAmina, "الخادم يعرف الكاتبة وإن أخفت اسمها");

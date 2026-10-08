@@ -230,7 +230,7 @@ const whoami = async (tok) => {
   console.log("\n▸ ⑨ صندوق الشكاوى — صفٌّ كما يبنيه rowFor بالضبط");
   const tag = "verify-" + Date.now().toString(36);
   const stuUid = await whoami(stu);
-  /* ملاحظة: `target`/`anonymous` عمودان في sql/004. لم يُشغَّل بعد هنا،
+  /* ملاحظة: `target`/`anonymous` عمودان في sql/006. لم يُشغَّل بعد هنا،
      فالعميل **يُدرج الهدف في المتن** بدل إرسال عمود يرفضه الخادم. */
   const cbody = "«النظافة»: أثر إثبات آلي " + tag;
   const c1 = await post("complaints",
@@ -298,15 +298,15 @@ const whoami = async (tok) => {
     const cnt = await get("audit_log", "select=id&client_id=eq." + qid, dir);
     chk((cnt.body || []).length === 1, "وصفّ واحد فقط في القاعدة بعد الإرسالين");
   } else {
-    /* لم يُشغَّل sql/005: upsert مرفوض. نُثبت أن الحارس في العميل يُنجِح
+    /* لم يُشغَّل sql/006: upsert مرفوض. نُثبت أن الحارس في العميل يُنجِح
        فالمنصّة تعمل — لكن نُعلن العلّة بدل أن نُدّعي السلامة. */
     no("upsert بمفتاح client_id ⇒ مرفوض (42P10)",
-       "الفهرس الفريد على client_id جزئيّ — شغّلي sql/005_client_id_unique.sql");
+       "الفهرس الفريد على client_id جزئيّ — شغّلي sql/006_apply_004_and_005.sql");
     const ins = await insAudit();
     const insBody = await ins.json().catch(() => null);
     chk(ins.status === 201 && insBody?.length === 1,
         "والحارس في العميل (إدراج عادي) يُنجِح ⇒ الأثر يصل ولا يُجمَّد الطابور");
-    ok("الخلاصة: المنصّة تعمل الآن بالإدراج، وsql/005 يُعيد upsert فيُحدِّث بدل أن يُطوي");
+    ok("الخلاصة: المنصّة تعمل الآن بالإدراج، وsql/006 يُعيد upsert فيُحدِّث بدل أن يُطوي");
   }
   if (!KEEP) {
     await fetch(`${URL_}/rest/v1/audit_log?client_id=eq.${encodeURIComponent(qid)}`,

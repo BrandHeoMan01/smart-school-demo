@@ -2289,6 +2289,16 @@ async function ensureUid(){
 const PERMANENT_FAIL=/^(42P10|42703|PGRST204|23514|22P02|23503)$/;
 const MAX_TRIES=8;   /* سقف للفشل العارض أيضًا: صفّ واحد لا يوقف مزامنة مدرسة */
 
+/* لكل جدول **مفتاحه الطبيعي**. أكثرها `client_id` (مفتاح منع الازدواج عند
+   إعادة الإرسال)، أمّا ما له قيد طبيعيّ أضيق فيُصطدم به **أوّلًا**:
+     · attendance — صفٌّ واحد لكل (تلميذة، يوم).
+     · grades     — صفٌّ واحد لكل (تلميذة، مادة، فصل، تقييم).
+   ولو أرسلنا `client_id` في هذين لَردّ الخادم 23505 على القيد الطبيعي،
+   فبدا «وصل سابقًا» وأُسقِط الأثر **السليم** بلا ذنب. (اكتشفه تشغيل 006:
+   كان 42P10 يحجب هذا الطريق فلا يُقاس أصلًا.) */
+const CONFLICT_OF={attendance:"student_id,day", grades:"student_id,subject,term,label"};
+const conflictKey=(t)=>CONFLICT_OF[t]||"client_id";
+
 async function flushQueue(){
   if(_flushing || SYNC.mode!=="remote" || !SYNC.online || !QUEUE.length) return;
   const client=await ensureClient(); if(!client) return;
@@ -2308,7 +2318,7 @@ async function flushQueue(){
         for(const k in (it.match||{})) q=q.eq(k,it.match[k]);
         const r=await q; error=r.error; affected=(r.data||[]).length;
       }else{
-        let r=await client.from(it.table).upsert(it.row,{onConflict:"client_id"});
+        let r=await client.from(it.table).upsert(it.row,{onConflict:conflictKey(it.table)});
         /* المخطّط الأصلي أنشأ الفهرس الفريد على client_id **جزئيًّا**
            (`where client_id is not null`)، وPostgres لا يستطيع مطابقة فهرس
            جزئي بـON CONFLICT ⇒ 42P10 لكل صفّ. نسقط المفتاح ونُرسل إدراجًا
