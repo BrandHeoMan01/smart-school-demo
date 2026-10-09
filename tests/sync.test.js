@@ -573,13 +573,14 @@ async function main() {
        «وصل سابقًا» وأُسقِط أثرٌ سليم. (كشفه تشغيل 006 على PostgreSQL حقيقي.) */
     {
       const { T } = makeSandbox({ mode: "remote" });
-      const srv = badServer([{ error: null }, { error: null }, { error: null }]);
+      const srv = badServer([{ error: null }, { error: null }, { error: null }, { error: null }]);
       T.SYNC.client = srv; T.SYNC.online = true;
       T.enqueue("audit_log", { action: "أ" });
       T.enqueue("attendance", { student_id: 3, day: "2026-10-09", state: "present" });
       T.enqueue("grades", { student_id: 3, subject: "عربية", term: 1, label: "فرض 1", mark: 8 });
+      T.enqueue("complaints", { body: "شكوى" });
       await T.flushQueue();
-      eq(srv.calls.length, 3, "ثلاث عمليات أُرسلت");
+      eq(srv.calls.length, 4, "أربع عمليات أُرسلت");
       eq(srv.calls[0].opts.onConflict, "client_id",
          "الجدول بلا قيد أضيق ⇒ client_id (منع الازدواج عند إعادة الإرسال)");
       eq(srv.calls[1].opts.onConflict, "student_id,day",
@@ -588,13 +589,18 @@ async function main() {
          "النقاط ⇒ مفتاحها الطبيعي، وإلّا سقط الأثر على قيد التقييم");
       eq(T.QUEUE.length, 0, "والطابور يُفرَّغ كاملًا");
 
-      /* أسلوب الحسم: جداول الإضافة-فقط DO NOTHING، والباقي DO UPDATE.
-         سجلّ التدقيق بلا سياسة UPDATE بالقصد ⇒ إعادة إرساله بـmerge تردّها
-         RLS بـ42501. والعميل يطلب ignoreDuplicates لها، فتصل بهدوء. */
+      /* أسلوب الحسم: جداولٌ لا يملك مُرسِلُها حقّ التعديل عليها ⇒ DO NOTHING،
+         والباقي DO UPDATE. فسجلّ التدقيق بلا سياسة UPDATE، والشكوى يملكها
+         التلميذ ولا يستطيع تعديلها بعد إرسالها — وكلاهما يردّه الخادم 42501
+         لو أُرسل بـmerge، فيُنذر المديرة إنذارًا كاذبًا والأثر قد وصل. */
       eq(srv.calls[0].opts.ignoreDuplicates, true,
-         "سجلّ التدقيق (إضافة-فقط) ⇒ DO NOTHING؛ فإعادة الإرسال نجاح لا خطأ");
+         "سجلّ التدقيق ⇒ DO NOTHING؛ فإعادة الإرسال نجاح لا خطأ");
+      eq(srv.calls[3].opts.ignoreDuplicates, true,
+         "والشكوى كذلك ⇒ DO NOTHING (التلميذة لا تُعدّل شكواها بعد إرسالها)");
       eq(!srv.calls[1].opts.ignoreDuplicates, true,
          "والحضور ⇒ DO UPDATE (يُحدِّث صفّ اليوم فعلًا)");
+      eq(!srv.calls[2].opts.ignoreDuplicates, true,
+         "والنقاط ⇒ DO UPDATE (تُصحَّح العلامة لا تُهمَل)");
     }
   }
 

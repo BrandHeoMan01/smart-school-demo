@@ -490,11 +490,12 @@ async function testComplaints(db) {
   await as(db, S.uAmina, async () => {
     await allowed(
       () => db.query(
-        `insert into complaints (kind, body, target, anonymous)
-         values ('شكوى','دورات المياه تحتاج تنظيفًا','النظافة',false)`
+        `insert into complaints (kind, body, target, anonymous, client_id)
+         values ('شكوى','دورات المياه تحتاج تنظيفًا','النظافة',false,'cid-cmp-a')`
       ),
       "التلميذة ترسل شكوى ⇒ الخادم يوسم مالكها بنفسه"
     );
+
     await allowed(
       () => db.query(
         `insert into complaints (kind, body, target, anonymous)
@@ -502,6 +503,35 @@ async function testComplaints(db) {
       ),
       "ويمكن أن ترسلها مجهولة"
     );
+
+    /* المفتاح المزدوج: إعادة إرسال الشكوى نفسها (نفس client_id).
+       ① بـDO NOTHING تمرّ بهدوء — وهو ما يفعله العميل (ignoreDuplicates)،
+          لأنّ التلميذة **لا تملك حقّ تعديل** شكواها: التعديل للإدارة وحدها.
+       ② وبـDO UPDATE يُرفض 42501 — فلو أرسلها العميل merge لَأنذر المديرة
+          إنذارًا كاذبًا «لم تصل العملية» والأثر قد وصل فعلًا. */
+    await allowed(
+      () => db.query(
+        `insert into complaints (kind, body, target, anonymous, client_id)
+         values ('شكوى','نصّ محاولة تلوين','النظافة',false,'cid-cmp-a')
+         on conflict (client_id) do nothing`),
+      "وإعادة إرسالها بـDO NOTHING تمرّ بهدوء (وصلت سابقًا = نجاح)");
+    eq(await count(db, `select count(*)::int n from complaints where client_id='cid-cmp-a'`), 1,
+       "ولم تُنشأ نسخة ثانية ⇒ منع الازدواج يعمل");
+
+    let code = null;
+    try {
+      await db.query(
+        `insert into complaints (kind, body, target, anonymous, client_id)
+         values ('شكوى','نصّ محاولة تلوين','النظافة',false,'cid-cmp-a')
+         on conflict (client_id) do update set body = excluded.body`);
+    } catch (e) { code = e.code; }
+    eq(code, "42501",
+       "أمّا DO UPDATE فيُرفض: التلميذة لا تُعدّل شكواها (الإدارة وحدها)");
+    const kept = await db.query(`select body from complaints where client_id='cid-cmp-a'`);
+    eq(kept.rows[0].body, "دورات المياه تحتاج تنظيفًا",
+       "والنصّ الأصلي لم يتغيّر — لا يستطيع أحدٌ تلوين شكواها");
+    ok("⇒ لذلك يُرسل العميل الشكوى بـignoreDuplicates لا بـmerge");
+
     const mine = await count(db, `select count(*)::int n from complaints`);
     eq(mine, 2, "ترى رسالتيها هما فقط");
   });

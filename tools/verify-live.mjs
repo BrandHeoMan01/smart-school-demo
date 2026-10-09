@@ -226,31 +226,41 @@ const whoami = async (tok) => {
       { method: "DELETE", headers: H(dir) });
   }
 
-  /* ---------- ⑨ صندوق الشكاوى: كان لا يغادر الجهاز أبدًا ---------- */
+  /* ---------- ⑨ صندوق الشكاوى: كان لا يغادر الجهاز أبدًا ----------
+     · بطريقة العميل نفسها: upsert بـclient_id وignoreDuplicates — لا إدراجًا
+       آخر. فلا نقيس مسارًا غير الذي نُسلّمه.
+     · وبمفتاح **ثابت**: كل تشغيل يُحدّث الصفّ نفسه بدل أن يترك شكوى جديدة في
+       صندوق المديرة. (والتلميذة لا تملك تعديل شكواها، فـDO NOTHING هو الصحيح.) */
   console.log("\n▸ ⑨ صندوق الشكاوى — صفٌّ كما يبنيه rowFor بالضبط");
-  const tag = "verify-" + Date.now().toString(36);
+  const MARK = "eduvia-verify-marker";
   const stuUid = await whoami(stu);
-  /* ملاحظة: `target`/`anonymous` عمودان في sql/006. لم يُشغَّل بعد هنا،
-     فالعميل **يُدرج الهدف في المتن** بدل إرسال عمود يرفضه الخادم. */
-  const cbody = "«النظافة»: أثر إثبات آلي " + tag;
-  const c1 = await post("complaints",
-    { kind: "شكوى", body: cbody, status: "مُرسَل", created_by: stuUid, client_id: tag }, stu);
-  chk(c1.status === 201 && c1.body?.length === 1,
-      "التلميذة أرسلت شكوى ⇒ وصلت القاعدة",
-      `HTTP ${c1.status} · ${JSON.stringify(c1.body).slice(0, 140)}`);
-  const rowId = c1.body?.[0]?.id;
-  chk(c1.body?.[0]?.created_by === stuUid, "الخادم يربطها بصاحبتها (created_by)");
+  const cbody = "أثر إثبات آلي — يمكن حذفه من Table Editor ← complaints";
+  const sendC = () => fetch(`${URL_}/rest/v1/complaints?on_conflict=client_id`, {
+    method: "POST",
+    headers: { ...H(stu), Prefer: "resolution=ignore-duplicates,return=representation" },
+    body: JSON.stringify({ kind: "شكوى", body: cbody, status: "مُرسَل",
+                           created_by: stuUid, client_id: MARK }),
+  });
+  const c1 = await sendC();
+  chk(c1.status === 201 || c1.status === 200,
+      "التلميذة أرسلت شكوى بالطريقة التي ينفّذها الطابور ⇒ وصلت القاعدة",
+      `HTTP ${c1.status} · ${(await c1.text()).slice(0, 120)}`);
 
-  const cdup = await post("complaints",
-    { kind: "شكوى", body: cbody, status: "مُرسَل", created_by: stuUid, client_id: tag }, stu);
-  chk(cdup.status === 409 || cdup.status === 400,
-      "إعادة الإرسال ⇒ منع الازدواج (لا شكوى مكرّرة)", "HTTP " + cdup.status);
+  const row = await get("complaints", "select=id,status,created_by&client_id=eq." + MARK, stu);
+  const rowId = row.body?.[0]?.id;
+  chk(row.body?.length === 1, "وصفّ واحد فقط بالمفتاح الثابت (لا تتراكم آثار الاختبار)");
+  chk(row.body?.[0]?.created_by === stuUid, "الخادم يربطها بصاحبتها (created_by)");
 
-  const cDir = await get("complaints", "select=id,kind,body,status,created_by&client_id=eq." + tag, dir);
+  const againC = await sendC();
+  chk(againC.status === 201 || againC.status === 200,
+      "وإعادة الإرسال تمرّ بهدوء (التلميذة لا تُعدّل شكواها — DO NOTHING)",
+      "HTTP " + againC.status);
+
+  const cDir = await get("complaints", "select=id&client_id=eq." + MARK, dir);
   chk(cDir.body?.length === 1, "المديرة ترى الشكوى — وهذا كان مستحيلًا قبل اليوم");
   if (student2) {
     const stu2 = await login(student2[1], student2[4]);
-    const cS2 = await get("complaints", "select=id&client_id=eq." + tag, stu2);
+    const cS2 = await get("complaints", "select=id&client_id=eq." + MARK, stu2);
     chk(cS2.body?.length === 0, "والتلميذة الأخرى لا ترى شكوى زميلتها");
   }
   const cUp = await patch("complaints", "id=eq." + rowId, { status: "تمّت المعالجة" }, dir);
@@ -260,11 +270,9 @@ const whoami = async (tok) => {
     chk(seen.body?.[0]?.status === "تمّت المعالجة",
         "والتلميذة ترى قرار الإدارة (كانت ترى «مُرسَل» أبدًا)");
   }
-  if (!KEEP && rowId) {
-    /* لا سياسة DELETE للشكاوى — فنبقي الأثر موسومًا بدل أن ندّعي التنظيف. */
-    await patch("complaints", "id=eq." + rowId,
-      { body: "أثر إثبات آلي — يمكن حذفه من Table Editor ← complaints" }, dir);
-  }
+  /* الصفّ يبقى موسومًا («أثر إثبات آلي») لأنّ **لا سياسة DELETE للشكاوى** —
+     وهذا مقصود: صندوق شكاوى يستطيع المشتكى منه محوه ليس صندوق شكاوى.
+     والمفتاح الثابت يضمن أنّه صفٌّ واحد أبدًا، لا واحدٌ في كل تشغيل. */
 
   /* ---------- ⑩ الطابور: على الطريقة التي ينفّذها flushQueue فعلًا ----------
      كل الإثباتات أعلاه تستعمل إدراجًا عاديًّا. وهذا بالضبط ما جعل العطل
