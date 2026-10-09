@@ -292,11 +292,32 @@ const whoami = async (tok) => {
     chk(up1.status === 201 && up1Body?.length === 1,
         "upsert بمفتاح client_id يعمل ⇒ المزامنة تصل فعلًا",
         `HTTP ${up1.status} · ${JSON.stringify(up1Body).slice(0, 140)}`);
-    const up2 = await upsertAudit();
-    chk(up2.status === 200 || up2.status === 201,
-        "وإعادة الإرسال بنفس المفتاح تُحدِّث الصفّ نفسه (لا ازدواج)", "HTTP " + up2.status);
+
+    /* audit_log **إضافة-فقط** (لا سياسة UPDATE). ومع الفهرس الكامل تصير إعادة
+       الإرسال `ON CONFLICT DO UPDATE` ⇒ 42501. فنقيس الحالتين معًا: ما يفعله
+       العميل الآن (ignoreDuplicates) — وما كان سيحدث لو أرسل merge. */
+    const again = await fetch(`${URL_}/rest/v1/audit_log?on_conflict=client_id`, {
+      method: "POST",
+      headers: { ...H(dir), Prefer: "resolution=ignore-duplicates,return=representation" },
+      body: JSON.stringify(qrow),
+    });
+    const againText = (await again.text().catch(() => "")).slice(0, 120);
+    chk(again.status === 201 || again.status === 200,
+        "وإعادة إرسال الأثر نفسه تمرّ بهدوء (DO NOTHING — ما يفعله العميل)",
+        `HTTP ${again.status} · ${againText}`);
+
+    const merge = await fetch(`${URL_}/rest/v1/audit_log?on_conflict=client_id`, {
+      method: "POST",
+      headers: { ...H(dir), Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(qrow),
+    });
+    const mergeBody = await merge.json().catch(() => null);
+    chk(merge.status === 403 && /42501|row-level security/i.test(JSON.stringify(mergeBody)),
+        "وبـDO UPDATE يُرفض ⇒ سجلّ التدقيق إضافة-فقط، ولهذا لا نُرسله بـmerge",
+        `HTTP ${merge.status} · ${JSON.stringify(mergeBody).slice(0, 120)}`);
+
     const cnt = await get("audit_log", "select=id&client_id=eq." + qid, dir);
-    chk((cnt.body || []).length === 1, "وصفّ واحد فقط في القاعدة بعد الإرسالين");
+    chk((cnt.body || []).length === 1, "وصفّ واحد فقط في القاعدة بعد الإرسالات الثلاثة");
   } else {
     /* لم يُشغَّل sql/006: upsert مرفوض. نُثبت أن الحارس في العميل يُنجِح
        فالمنصّة تعمل — لكن نُعلن العلّة بدل أن نُدّعي السلامة. */

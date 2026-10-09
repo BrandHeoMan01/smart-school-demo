@@ -487,7 +487,23 @@ async function main() {
       eq(T.QUEUE.length, 0, "والطابور يُفرَّغ — لا تجمّد");
     }
 
-    /* ② 23505 بعد السقوط = «وصل سابقًا» لكن النسخة الأحدث طُويت ⇒ تُعلَن. */
+    /* ② 23505 بعد السقوط = «وصل سابقًا» لكن النسخة الأحدث طُويت ⇒ تُعلَن.
+       (على جدول **قابل للتعديل**: طيّ نسخةٍ أحدث فيه خسارةٌ حقيقية.) */
+    {
+      const { T } = makeSandbox({ mode: "remote" });
+      const srv = badServer([
+        { error: { code: "42P10", message: "x" } },
+        { error: { code: "23505", message: "duplicate key" } },
+      ]);
+      T.SYNC.client = srv; T.SYNC.online = true; T.SYNC.stale = 0;
+      T.enqueue("behaviour_notes", { body: "ملاحظة" });
+      await T.flushQueue();
+      eq(T.QUEUE.length, 0, "الازدواج نجاح لا فشل ⇒ الطابور يمضي");
+      eq(T.SYNC.stale, 1, "لكنّ طيّ النسخة الأحدث يُعَدّ ويُعلَن (لا صمت)");
+    }
+
+    /* ②ب وأمّا جداول الإضافة-فقط فإعادة إرسال الأثر نفسه فيها ليست طيًّا:
+       لا شيء يُفقد، فلا معنى لإنذار كاذب يُقلق المديرة بلا سبب. */
     {
       const { T } = makeSandbox({ mode: "remote" });
       const srv = badServer([
@@ -497,8 +513,8 @@ async function main() {
       T.SYNC.client = srv; T.SYNC.online = true; T.SYNC.stale = 0;
       T.enqueue("audit_log", { action: "أ" });
       await T.flushQueue();
-      eq(T.QUEUE.length, 0, "الازدواج نجاح لا فشل ⇒ الطابور يمضي");
-      eq(T.SYNC.stale, 1, "لكنّ طيّ النسخة الأحدث يُعَدّ ويُعلَن (لا صمت)");
+      eq(T.QUEUE.length, 0, "الأثر المُرسَل سابقًا يُمضى عنه بهدوء");
+      eq(T.SYNC.stale, 0, "ولا يُعَدّ طيًّا — لا إنذار كاذب على سجلّ إضافة-فقط");
     }
 
     /* ③ خطأ دائم (عمود مفقود) ⇒ يُسقَط ويُعَدّ، ولا يُجمّد ما خلفه. */
@@ -571,6 +587,14 @@ async function main() {
       eq(srv.calls[2].opts.onConflict, "student_id,subject,term,label",
          "النقاط ⇒ مفتاحها الطبيعي، وإلّا سقط الأثر على قيد التقييم");
       eq(T.QUEUE.length, 0, "والطابور يُفرَّغ كاملًا");
+
+      /* أسلوب الحسم: جداول الإضافة-فقط DO NOTHING، والباقي DO UPDATE.
+         سجلّ التدقيق بلا سياسة UPDATE بالقصد ⇒ إعادة إرساله بـmerge تردّها
+         RLS بـ42501. والعميل يطلب ignoreDuplicates لها، فتصل بهدوء. */
+      eq(srv.calls[0].opts.ignoreDuplicates, true,
+         "سجلّ التدقيق (إضافة-فقط) ⇒ DO NOTHING؛ فإعادة الإرسال نجاح لا خطأ");
+      eq(!srv.calls[1].opts.ignoreDuplicates, true,
+         "والحضور ⇒ DO UPDATE (يُحدِّث صفّ اليوم فعلًا)");
     }
   }
 

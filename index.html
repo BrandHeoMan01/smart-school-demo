@@ -2299,6 +2299,14 @@ const MAX_TRIES=8;   /* سقف للفشل العارض أيضًا: صفّ واح
 const CONFLICT_OF={attendance:"student_id,day", grades:"student_id,subject,term,label"};
 const conflictKey=(t)=>CONFLICT_OF[t]||"client_id";
 
+/* جداول **الإضافة-فقط**: لا سياسة UPDATE لها بالقصد (سجلّ التدقيق لا يُمحى ولا
+   يُعدَّل — وهي ضمانة في المخطّط، لا صدفة).
+   ومع الفهرس الكامل صارت إعادة إرسال صفٍّ وصل سابقًا تتحوّل إلى UPDATE ⇒ يردّه
+   الخادم `42501` «لا سياسة تعديل». فلهذه الجداول نطلب DO NOTHING بدل DO UPDATE:
+   المعنى الصحيح هو «إن كان وصل فذاك هو المطلوب» — نجاحٌ صريح لا خطأ. */
+const APPEND_ONLY={audit_log:1, notifications:1};
+const isAppendOnly=(t)=>!!APPEND_ONLY[t];
+
 async function flushQueue(){
   if(_flushing || SYNC.mode!=="remote" || !SYNC.online || !QUEUE.length) return;
   const client=await ensureClient(); if(!client) return;
@@ -2318,7 +2326,8 @@ async function flushQueue(){
         for(const k in (it.match||{})) q=q.eq(k,it.match[k]);
         const r=await q; error=r.error; affected=(r.data||[]).length;
       }else{
-        let r=await client.from(it.table).upsert(it.row,{onConflict:conflictKey(it.table)});
+        let r=await client.from(it.table).upsert(it.row,
+          {onConflict:conflictKey(it.table), ignoreDuplicates:isAppendOnly(it.table)});
         /* المخطّط الأصلي أنشأ الفهرس الفريد على client_id **جزئيًّا**
            (`where client_id is not null`)، وPostgres لا يستطيع مطابقة فهرس
            جزئي بـON CONFLICT ⇒ 42P10 لكل صفّ. نسقط المفتاح ونُرسل إدراجًا
@@ -2336,8 +2345,9 @@ async function flushQueue(){
         /* 23505 = ازدواج ⇒ وصل سابقًا فعلًا. هذا نجاح لا فشل. */
         if(error.code==="23505" || /duplicate|already exists/i.test(error.message||"")){
           /* إلّا إن كنا قد سقطنا إلى الإدراج: فذاك يعني أنّ النسخة الأحدث
-             **لم تُطبَّق** (لا upsert قبل sql/005). نقولها ولا نصمت. */
-          if(it._fellBack){ SYNC.stale=(SYNC.stale||0)+1; }
+             **لم تُطبَّق** (لا upsert قبل sql/006). نقولها ولا نصمت — ويسقط
+             العدّ في جداول الإضافة-فقط: إعادة إرسال الأثر نفسه ليست طيًّا. */
+          if(it._fellBack && !isAppendOnly(it.table)){ SYNC.stale=(SYNC.stale||0)+1; }
           QUEUE.shift(); saveQueue(); continue;
         }
         if(PERMANENT_FAIL.test(error.code||"") || (it.tries||0)>=MAX_TRIES){

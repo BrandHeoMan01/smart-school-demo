@@ -382,9 +382,33 @@ async function testUpsertFixed(db) {
     ok("⇒ لذلك مفتاح الحضور في الطابور (student_id, day) — وقد أُصلح العميل على ذلك");
   });
 
+  /* الحارس الذي فرضه الإصلاح: سجلّ التدقيق **إضافة-فقط** — إعادة إرسال الأثر
+     نفسه تمرّ بـDO NOTHING، ويرفضها بـDO UPDATE لعدم وجود سياسة تعديل.
+     وهذا هو سبب إرسال العميل لها `ignoreDuplicates` لا `merge-duplicates`. */
+  await as(db, S.uTeacher, async () => {
+    const audit = (detail, tail) => db.query(
+      `insert into audit_log (action, target, detail, client_id)
+       values ('اختبار','أثر',$1,$2) ${tail}`, [detail, "cid-ao"]);
+
+    await allowed(() => audit("أوّل", ""), "المعلّمة تُرسل أثرًا في سجلّ التدقيق");
+    await allowed(() => audit("إعادة", "on conflict (client_id) do nothing"),
+      "وإعادة إرساله بـDO NOTHING تمرّ بهدوء (وصل سابقًا = نجاح)");
+
+    let code = null;
+    try { await audit("تعديل", "on conflict (client_id) do update set detail = excluded.detail"); }
+    catch (e) { code = e.code; }
+    eq(code, "42501",
+       "أمّا DO UPDATE فيُرفض: سجلّ التدقيق لا يُعدَّل (لا سياسة UPDATE)");
+    eq(await count(db, `select count(*)::int n from audit_log where client_id='cid-ao'`), 1,
+       "وصفّ واحد فقط — والنسخة الثانية لم تُكتب");
+    const d = await db.query(`select detail from audit_log where client_id='cid-ao'`);
+    eq(d.rows[0].detail, "أوّل", "والنصّ الأصلي لم يتغيّر (إضافة-فقط فعلًا)");
+    ok("⇒ لذلك يُرسل العميل جداول الإضافة-فقط بـignoreDuplicates لا بـmerge");
+  });
+
   /* لا نترك أثرًا: الاختبار يُعيد القاعدة كما وجدها، فلا تُفسد صفوفُه
      قياسَ اختباراتٍ لاحقة (وهذا ما حدث فعلًا عند إضافته أول مرّة). */
-  await db.query(`delete from audit_log where client_id in ('cid-x','cid-y','cid-stu')`);
+  await db.query(`delete from audit_log where client_id in ('cid-x','cid-y','cid-stu','cid-ao')`);
   await db.query(`delete from attendance where client_id in ('cid-att','cid-att2','cid-att3')`);
 }
 
