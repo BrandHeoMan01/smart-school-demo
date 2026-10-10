@@ -824,7 +824,10 @@ function buildData(){
   gateLog=students.filter(s=>s.time).map(s=>({time:s.time,name:s.name,cls:s.cls,late:s.state==="late"}))
     .sort((a,b)=>b.time.localeCompare(a.time));
   // إشعار نظام
-  notifs=[{time:nowHM(),type:"system",text:"تمّت مزامنة آخر العمليات مع الخادم المحلي بنجاح."}];
+  /* إشعار البدء. كان يقول «تمّت مزامنة آخر العمليات مع الخادم المحلي بنجاح»
+     — وهي **دعوى مزامنة لم تقع**: هذا الفرع يعمل حين لا خادم أصلًا. الصدق
+     هنا ليس ترفًا: أوّل ما تقرأه المستخدمة يجب ألّا يكون وعدًا كاذبًا. */
+  notifs=[{time:nowHM(),type:"system",text:"وضع تجريبي محلي: هذه البيانات مولَّدة في هذا الجهاز وحده، ولا خادم موصول."}];
 }
 
 /* ================= أدوات مساعدة ================= */
@@ -1192,8 +1195,9 @@ const ALL_PAGES=["dashboard","students","classes","teachers","cards","attendance
 let currentRole="director";
 let CURRENT_USER=null;   /* مَن سجّل الدخول فعلًا — عليه يُبنى سجلّ التدقيق */
 
-/* أُزيل اختيار الدور الحرّ: الدور يأتي من **الحساب** لا من قائمة منسدلة. */
-function renderRolePicker(){ renderDemoAccounts(); }
+/* أُزيل اختيار الدور الحرّ: الدور يأتي من **الحساب** لا من قائمة منسدلة.
+   (وكان هنا `renderRolePicker()` — شيمٌ من نسخة ما قبل الخادم، لا يناديه
+   شيء. أُزيل، والتدقيق الساكن في tests/static.test.js يمنع عودته.) */
 
 function renderDemoAccounts(){
   const el=document.getElementById("demoAccTable"); if(!el) return;

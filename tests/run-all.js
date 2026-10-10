@@ -28,6 +28,7 @@ const DONE = /__EDUVIA_SUITE_DONE__ ok=(\d+) fail=(\d+)/;
 
 const suites = [
   { file: "boot.test.js", name: "الإقلاع", need: null },
+  { file: "static.test.js", name: "التدقيق الساكن للملفّ", need: null },
   { file: "sync.test.js", name: "المزامنة والمصادقة", need: null },
   {
     file: "rls.test.js",
